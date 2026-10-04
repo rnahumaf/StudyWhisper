@@ -245,8 +245,8 @@ Async("Current response returns discrete citations, deduplicated safe URLs and a
     using var http=new HttpClient(mock);var api=new OpenRouter(http,()=>"TEST-ONLY",new());var answer=await api.AnswerAsync("Qual a diretriz atual?",Array.Empty<Turn>(),default);
     Assert(answer.Sources.Count==1&&answer.Sources[0].Title=="Fonte oficial"&&answer.SearchRequests==1&&answer.Content.Contains("**"));
 });
-Async("ZDR and opt-out omit search without relaxing provider policy",async()=>{
-    foreach(var settings in new[]{new Settings{RequireZdr=true},new Settings{EnableWebSearch=false}}){var mock=new MockHttp();using var http=new HttpClient(mock);var api=new OpenRouter(http,()=>"TEST-ONLY",settings);await api.AnswerAsync("Qual o preço atual?",Array.Empty<Turn>(),default);var body=mock.Bodies.Single();Assert(!body.TryGetProperty("tools",out _)&&!body.TryGetProperty("max_tool_calls",out _));Assert(body.GetProperty("messages")[0].GetProperty("content").GetString()!.Contains("não foi verificado"));if(settings.RequireZdr)Assert(body.GetProperty("provider").GetProperty("zdr").GetBoolean()&&body.GetProperty("provider").GetProperty("data_collection").GetString()=="deny");}
+Async("Search opt-out omits tool both with and without ZDR",async()=>{
+    foreach(var settings in new[]{new Settings{RequireZdr=true,EnableWebSearch=false},new Settings{EnableWebSearch=false}}){var mock=new MockHttp();using var http=new HttpClient(mock);var api=new OpenRouter(http,()=>"TEST-ONLY",settings);await api.AnswerAsync("Qual o preço atual?",Array.Empty<Turn>(),default);var body=mock.Bodies.Single();Assert(!body.TryGetProperty("tools",out _)&&!body.TryGetProperty("max_tool_calls",out _));Assert(body.GetProperty("messages")[0].GetProperty("content").GetString()!.Contains("não foi verificado"));if(settings.RequireZdr)Assert(body.GetProperty("provider").GetProperty("zdr").GetBoolean()&&body.GetProperty("provider").GetProperty("data_collection").GetString()=="deny");}
 });
 Async("Repeated negatives then question hit local budget, do not retry, and recover after window",async()=>{
     var now=DateTimeOffset.UtcNow;var budget=new CallBudget(12,300,()=>now);var mock=new MockHttp{JevJson=Fixtures.Jev.Replace("\"choice\":\"responder\"","\"choice\":\"ignorar\"")};
@@ -282,6 +282,27 @@ Async("HTTP response messages contain exactly ten previous pairs plus current qu
     await api.AnswerAsync("E nas crianças?",turns,default);var messages=mock.Bodies.Single().GetProperty("messages");Assert(messages.GetArrayLength()==22);
     for(var i=0;i<10;i++){Assert(messages[1+i*2].GetProperty("content").GetString()==$"Q{i+2}"&&messages[2+i*2].GetProperty("content").GetString()==$"A{i+2}");}
     Assert(messages[21].GetProperty("content").GetString()=="E nas crianças?");
+});
+
+Async("ZDR with search enabled allows Exa and keeps inference privacy on every stage",async()=>{
+    var settings=new Settings{RequireZdr=true,EnableWebSearch=true,AnswerModel="mock/text"};var mock=new MockHttp();using var http=new HttpClient(mock);var api=new OpenRouter(http,()=>"TEST-ONLY",settings);
+    var history=new[]{new Turn("Tema de estudo anterior?", "Resposta anterior com marcador sintético IRRELEVANTE_TESTE, sem dados reais.",DateTimeOffset.UtcNow)};
+    using var p=new Pipeline(api,settings,initialHistory:history);p.Enable();await p.SubmitAsync(Audio());
+    Assert(mock.Bodies.Count==3&&mock.Bodies.All(b=>b.GetProperty("provider").GetProperty("zdr").GetBoolean()&&b.GetProperty("provider").GetProperty("data_collection").GetString()=="deny"));
+    Assert(!mock.Bodies[0].TryGetProperty("tools",out _)&&!mock.Bodies[1].TryGetProperty("tools",out _));
+    var body=mock.Bodies[2];var tool=body.GetProperty("tools")[0];var parameters=tool.GetProperty("parameters");
+    Assert(tool.GetProperty("type").GetString()=="openrouter:web_search"&&parameters.GetProperty("engine").GetString()=="exa"&&body.GetProperty("tool_choice").GetString()=="auto"&&body.GetProperty("max_tool_calls").GetInt32()==1);
+    Assert(parameters.EnumerateObject().Select(x=>x.Name).OrderBy(x=>x).SequenceEqual(new[]{"engine","max_uses","max_results","max_total_results","max_characters"}.OrderBy(x=>x))&&!tool.ToString().Contains("IRRELEVANTE_TESTE"));
+    var messages=body.GetProperty("messages");Assert(messages.GetArrayLength()==4&&messages[2].GetProperty("content").GetString()!.Contains("IRRELEVANTE_TESTE"));
+    var instructions=messages[0].GetProperty("content").GetString()!;
+    Assert(instructions.Contains("menor consulta suficiente")&&instructions.Contains("Não envie histórico bruto")&&instructions.Contains("conversa irrelevante")&&instructions.Contains("identificadores pessoais")&&instructions.Contains("outros segredos")&&instructions.Contains("condições clinicamente relevantes")&&!instructions.Contains(AnswerStyle.OfflineInstructions));
+});
+Async("ZDR search sources remain visible and settings flags remain independent",async()=>{
+    var settings=new Settings{RequireZdr=true,EnableWebSearch=true};var mock=new MockHttp{AnswerJson="""{"choices":[{"message":{"content":"Atualização com fonte.","annotations":[{"type":"url_citation","url_citation":{"title":"Fonte pública","url":"https://example.org/current"}}]}}],"usage":{"server_tool_use":{"web_search_requests":1}}}"""};
+    using var http=new HttpClient(mock);var api=new OpenRouter(http,()=>"TEST-ONLY",settings);var answer=await api.AnswerAsync("Qual é a diretriz atual?",Array.Empty<Turn>(),default);
+    Assert(answer.Sources.Single().Title=="Fonte pública"&&answer.SearchRequests==1&&settings.RequireZdr&&settings.EnableWebSearch);
+    var optOut=settings with{EnableWebSearch=false};Assert(optOut.RequireZdr&&!optOut.EnableWebSearch&&settings.EnableWebSearch);
+    var restored=JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(optOut))!;Assert(restored.RequireZdr&&!restored.EnableWebSearch);
 });
 
 int failed=0;foreach(var (name,run) in tests){try{await run();Console.WriteLine("PASS "+name);}catch(Exception ex){failed++;Console.WriteLine("FAIL "+name+": "+ex.Message);}}

@@ -23,7 +23,7 @@ São quatro buffers nativos de 640 bytes e no máximo 30 segundos por segmento. 
 
 ## Cancelamento e memória
 
-Uma geração e um `CancellationTokenSource` protegem cada execução. Pausar e limpar avançam a geração, cancelam tarefas e recusam resultados antigos, inclusive de mock que ignora o token. Pausa não apaga histórico; limpar apaga histórico e texto incompleto. Configurar modelos pausa e mantém histórico. A memória é habilitada por padrão e inclui as últimos dez pares completos de pergunta e resposta, com perguntas até 4.000 caracteres e respostas até 6.000. A sessão mantém no máximo 30 respostas.
+Uma geração e um `CancellationTokenSource` protegem cada execução. Pausar e limpar avançam a geração, cancelam tarefas e recusam resultados antigos, inclusive de mock que ignora o token. Pausa não apaga histórico; limpar apaga histórico e texto incompleto. Configurar modelos pausa e mantém histórico. A memória é habilitada por padrão e inclui os últimos dez pares completos de pergunta e resposta, com perguntas até 4.000 caracteres e respostas até 6.000. A sessão mantém no máximo 30 respostas.
 
 O JEV recebe critérios para responder apenas a perguntas claras de estudo, aguardar fala incompleta e ignorar enunciados/comentários/interjeições/comandos sem pergunta. `answers.action` deve ser `choice`, com label reconhecido e probabilidades finitas entre 0 e 1, somando aproximadamente 1. Só `responder` com probabilidade pelo menos 0,65 chama chat. Esse limiar é uma decisão inicial do MVP, não uma medida de precisão calibrada. Resposta vazia ou formato inválido falham sem exibir conteúdo remoto de erro.
 

@@ -1,4 +1,4 @@
-# Conversa, pesquisa e apresentação, 0.1.6
+# Conversa, pesquisa e apresentação, 0.1.7
 
 ## Contexto e estilo
 
@@ -12,9 +12,13 @@ Resposta tem limite de 1.400 tokens e apresentação limitada a 6.000 caracteres
 
 Contrato consultado em 04/10/2026: [Web Search Server Tool](https://openrouter.ai/docs/guides/features/server-tools/web-search) e [Server Tools e retenção](https://openrouter.ai/docs/guides/features/server-tools). Usa `tools: [{type: "openrouter:web_search", parameters: {engine: "exa", max_uses: 1, max_results: 3, max_total_results: 3, max_characters: 2000}}]`, `tool_choice: "auto"` e `max_tool_calls: 1`. OpenRouter executa o ciclo no servidor; não há rodada adicional implementada pelo cliente, `:online` acrescentado ou plugin de busca legada.
 
-A ferramenta fica disponível apenas na resposta, se habilitada e sem ZDR. O modelo decide executar zero ou uma consulta. O prompt orienta busca para fatos atuais, fontes verificadas ou dúvida relevante, sem buscar todo conceito estável. O engine Exa permite aplicar os limites sem depender de limites ignorados por alguns provedores nativos. `usage.server_tool_use.web_search_requests` informa consultas quando fornecido. `message.annotations` do tipo `url_citation` fornece até três fontes distintas com título e URL HTTP/HTTPS válida. Os índices da citação não são usados para alterar texto truncado. Custo adicional não é calculado com tabela fixa.
+A ferramenta fica disponível apenas na resposta, se habilitada, inclusive com ZDR exigido para o modelo. O modelo decide executar zero ou uma consulta. O prompt orienta busca para fatos atuais, fontes verificadas ou dúvida relevante, sem buscar todo conceito estável. O engine Exa permite aplicar os limites sem depender de limites ignorados por alguns provedores nativos. `usage.server_tool_use.web_search_requests` informa consultas quando fornecido. `message.annotations` do tipo `url_citation` fornece até três fontes distintas com título e URL HTTP/HTTPS válida. Os índices da citação não são usados para alterar texto truncado. Custo adicional não é calculado com tabela fixa.
 
-ZDR é mantido em STT, JEV e resposta e bloqueia a ferramenta de busca. As políticas de retenção do mecanismo de pesquisa são independentes. Preferência de pesquisa pode permanecer marcada para uso futuro, mas o controle fica indisponível enquanto ZDR estiver marcado. Modelos com pesquisa intrínseca não são auditados pelo app. Falhas não provocam tentativas automáticas nem relaxamento de política. A API de server tools está em beta.
+ZDR é mantido em STT, JEV e resposta. A pesquisa Exa pode ser habilitada ou desabilitada independentemente, sem alterar `RequireZdr` ou as flags de inferência. As políticas de retenção do mecanismo de pesquisa são independentes. Na 0.1.6, o app impunha um bloqueio conservador incorreto; a 0.1.7 remove essa restrição, que não era exigida pelo OpenRouter. Modelos com pesquisa intrínseca não são auditados pelo app. Falhas não provocam tentativas automáticas nem relaxamento de política. A API de server tools está em beta.
+
+O [contrato oficial de ZDR para server tools](https://openrouter.ai/docs/guides/features/server-tools#zdr-enforcement) limita os endpoints de inferência e não desabilita ferramentas nem altera a retenção do backend. A restrição expressa é Firecrawl quando ZDR é imposto pela conta ou guardrail. O app continua fixando Exa; não usa Firecrawl nem faz fallback que relaxe ZDR.
+
+O modelo recebe a pergunta e o contexto de dez pares para responder. Para pesquisar, o prompt exige extrair a menor consulta suficiente, usando contexto apenas para resolver referências, sem enviar histórico bruto, conversa irrelevante, identificadores pessoais ou segredos. Dados clínicos necessários, como tema e faixa etária, podem integrar uma consulta geral. A definição da ferramenta contém somente limites e engine, sem histórico ou áudio. OpenRouter executa a consulta gerada pelo modelo no servidor e usa sua autenticação Exa. O app não intercepta essa consulta para validá-la mecanicamente; não há promessa de anonimização infalível nem de retenção zero na Exa. Mocks verificam instruções e payloads, não o comportamento do serviço remoto.
 
 ## Markdown nativo
 

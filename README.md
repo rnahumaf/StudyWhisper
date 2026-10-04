@@ -1,10 +1,10 @@
 # StudyWhisper
 
-Assistente de estudo para Windows que escuta quando você ativa o monitoramento e responde somente em texto. MVP 0.1.6, código aberto sob [licença MIT](LICENSE).
+Assistente de estudo para Windows que escuta quando você ativa o monitoramento e responde somente em texto. MVP 0.1.7, código aberto sob [licença MIT](LICENSE).
 
 ## Instalar
 
-Baixe `StudyWhisper-0.1.6-Setup-x64.exe` na [página de Releases](https://github.com/rnahumaf/StudyWhisper/releases). O instalador é por usuário e inclui .NET; não exige SDK ou administrador. O binário não tem assinatura digital.
+Baixe `StudyWhisper-0.1.7-Setup-x64.exe` na [página de Releases](https://github.com/rnahumaf/StudyWhisper/releases). O instalador é por usuário e inclui .NET; não exige SDK ou administrador. O binário não tem assinatura digital.
 
 Requisitos: Windows 10/11 x64, dispositivo de gravação, conexão com a internet e sua própria chave do OpenRouter. O filtro ONNX requer o [Microsoft Visual C++ v14 Redistributable x64](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170). Se o pré-requisito faltar, o app mostra instruções e permanece pausado. Consulte [portabilidade](docs/PORTABILITY.md).
 
@@ -36,11 +36,11 @@ Há uma tarefa ativa e até duas falas pendentes por 30 segundos. Excesso preser
 
 ## Privacidade
 
-Áudio, transcrições e respostas não são gravados em disco. Áudio aprovado vai ao STT; transcrição e contexto vão ao JEV e ao modelo de resposta. Com pesquisa habilitada, a consulta formulada pelo modelo também vai ao serviço de busca. O prompt orienta consultas curtas sem identificadores pessoais; isso não constitui garantia sobre o comportamento de um modelo remoto.
+Áudio, transcrições e respostas não são gravados em disco. Áudio aprovado vai ao STT; transcrição e contexto vão ao JEV e ao modelo de resposta. Com pesquisa habilitada, a consulta formulada pelo modelo também vai ao serviço de busca. O prompt orienta consultas curtas sem identificadores pessoais; as instruções proíbem copiar histórico bruto, conversa irrelevante, identificadores pessoais e segredos para a consulta. Isso não constitui garantia de anonimização ou de cumprimento por um modelo remoto.
 
 A única chave usada é a cadastrada neste app, protegida pelo DPAPI do usuário em `%LOCALAPPDATA%\StudyWhisper\openrouter.dpapi`. Preferências ficam em `settings.json`, sem chave. O app não busca credenciais de outros programas, não tem telemetria nem logs de conversas. Strings gerenciadas e serviços remotos não permitem prometer remoção física imediata dos dados. Ao desinstalar, preferências e chave são preservadas; remova a chave pelo app antes se quiser descartá-la.
 
-**Exigir ZDR e negar coleta** envia `provider.zdr=true` e `provider.data_collection=deny` em todas as etapas, sem relaxar a política em erros. Essa opção **bloqueia a ferramenta de pesquisa**, porque a política do modelo não cobre a retenção do buscador. ZDR depende de rota compatível e pode impedir chamadas. Sem essa opção, aplicam-se as políticas da conta e dos provedores. Modelos com pesquisa intrínseca podem ter seu próprio comportamento; o bloqueio descrito refere-se à ferramenta adicionada pelo app. Não foram auditadas as práticas dos serviços remotos.
+**Exigir ZDR e negar coleta** envia `provider.zdr=true` e `provider.data_collection=deny` em todas as etapas, sem relaxar a política em erros. A pesquisa Exa funciona com essa opção ativada e continua sob o controle **Permitir pesquisa online**. A busca envia consultas à Exa, cuja retenção não é coberta pelo ZDR do modelo. ZDR depende de rota compatível e pode impedir chamadas. Sem essa opção, aplicam-se as políticas da conta e dos provedores. Modelos com pesquisa intrínseca podem ter seu próprio comportamento; a política de retenção da busca deve ser considerada separadamente. Não foram auditadas as práticas dos serviços remotos.
 
 ## Desenvolver e testar
 
@@ -50,9 +50,9 @@ Instale .NET SDK 8 ou 10 e Inno Setup 6. As dependências são restauradas pelo 
 .\scripts\Test.ps1 -Ui
 .\scripts\Build.ps1
 .\scripts\Verify-Package.ps1
-.\artifacts\publish-0.1.6\StudyWhisper.exe --demo
+.\artifacts\publish-0.1.7\StudyWhisper.exe --demo
 ```
 
 Os testes usam mocks HTTP, relógio controlado e áudio sintético. O modo `--demo` não abre microfone nem faz inferência remota. `Test.ps1 -Ui` renderiza WPF real e verifica foco, rolagem, Markdown e círculo. `Build.ps1` produz EXE autossuficiente, instalador e SHA-256 em `artifacts`, fora do Git. `Verify-Package.ps1` verifica o pacote sem depender de .NET instalado globalmente.
 
-Consulte [contratos oficiais](docs/API.md), [arquitetura](docs/ARCHITECTURE.md), [conversa, pesquisa e Markdown](docs/CONVERSATION.md), [testes e limites](docs/VERIFICATION.md), [triagem neural](docs/AUDIO-TRIAGE.md) e [indicador circular](docs/VISUAL-MONITOR.md). A versão 0.1.6 foi validada com simulações; microfone pessoal, chave real, inferência paga, pesquisa remota e instalação por outro usuário não foram testados ao vivo.
+Consulte [contratos oficiais](docs/API.md), [arquitetura](docs/ARCHITECTURE.md), [conversa, pesquisa e Markdown](docs/CONVERSATION.md), [testes do patch](docs/VERIFICATION-0.1.7.md), [testes e limites](docs/VERIFICATION.md), [triagem neural](docs/AUDIO-TRIAGE.md) e [indicador circular](docs/VISUAL-MONITOR.md). A versão 0.1.7 foi validada com simulações; microfone pessoal, chave real, inferência paga, pesquisa remota e instalação por outro usuário não foram testados ao vivo.

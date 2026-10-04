@@ -165,7 +165,7 @@ public sealed class OpenRouter : IStudyApi
     }
     public async Task<StudyAnswer> AnswerAsync(string transcript,IReadOnlyList<Turn> memory,CancellationToken token)
     {
-        var search=settings.EnableWebSearch&&!settings.RequireZdr;
+        var search=settings.EnableWebSearch;
         var messages=new List<object>{new {role="system",content=AnswerStyle.Instructions+"\n"+(search?AnswerStyle.SearchInstructions:AnswerStyle.OfflineInstructions)}};
         foreach(var turn in memory.TakeLast(10)){messages.Add(new {role="user",content=turn.Question});messages.Add(new {role="assistant",content=turn.Answer});}
         messages.Add(new {role="user",content=transcript});

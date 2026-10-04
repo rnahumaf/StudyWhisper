@@ -31,6 +31,12 @@ public static class UiSmoke
             var settings=new SettingsWindow(c){ShowActivated=false};settings.Show();await Yield();Capture(settings,Path.Combine(dir,"settings-normal.png"));
             Check("Session usage shows unknown cost and counted STT seconds",settings.Usage.Text.Contains("desconhecido")&&settings.Usage.Text.Contains("14"));
             Check("Settings content scrolls and footer remains reachable",settings.Scroller.ScrollableHeight>0&&settings.ActualWidth==660);
+            var checkboxes=Descendants(settings).OfType<CheckBox>().ToArray();
+            var zdr=checkboxes.Single(b=>(b.Content as string)?.StartsWith("Exigir ZDR")==true);
+            var search=checkboxes.Single(b=>(b.Content as string)?.StartsWith("Permitir pesquisa")==true);
+            zdr.IsChecked=true;await Yield();Check("ZDR does not disable independently enabled Exa search",search.IsEnabled&&search.IsChecked==true);
+            var searchNotice=Descendants(settings).OfType<TextBlock>().Single(t=>t.Text.Contains("cuja retenção não é coberta"));searchNotice.BringIntoView();await Yield();Capture(settings,Path.Combine(dir,"settings-search-zdr.png"));
+            search.IsChecked=false;await Yield();Check("Search opt-out preserves selected ZDR and explains independent retention",zdr.IsChecked==true&&search.IsChecked==false&&searchNotice.Text.Contains("Exa"));
             settings.Height=450;settings.Width=580;await Yield();Capture(settings,Path.Combine(dir,"settings-minimum.png"));
             settings.Usage.BringIntoView();await Yield();Capture(settings,Path.Combine(dir,"settings-usage.png"));
             settings.Scroller.ScrollToBottom();await Yield();Capture(settings,Path.Combine(dir,"settings-minimum-bottom.png"));Check("Settings scroll reaches limits",Math.Abs(settings.Scroller.VerticalOffset-settings.Scroller.ScrollableHeight)<1);settings.Close();

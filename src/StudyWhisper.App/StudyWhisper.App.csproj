@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- WPF owns DPI via manifest. WinForms is used only for NotifyIcon, never as the application host. -->
-  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework><UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>disable</ImplicitUsings><AssemblyName>StudyWhisper</AssemblyName><Version>0.1.6</Version><ApplicationManifest>app.manifest</ApplicationManifest><NoWarn>$(NoWarn);WFAC010</NoWarn></PropertyGroup>
+  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework><UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>disable</ImplicitUsings><AssemblyName>StudyWhisper</AssemblyName><Version>0.1.7</Version><ApplicationManifest>app.manifest</ApplicationManifest><NoWarn>$(NoWarn);WFAC010</NoWarn></PropertyGroup>
   <ItemGroup><ProjectReference Include="../StudyWhisper.Core/StudyWhisper.Core.csproj" /></ItemGroup>
 </Project>

@@ -6,7 +6,7 @@ public sealed class SettingsWindow : Window
     private readonly ComboBox stt=new(),jev=new(),answer=new();
     private readonly CheckBox memory=new(){Content="Usar os dez últimos pares de pergunta e resposta"};
     private readonly CheckBox startup=new(){Content="Iniciar com Windows (monitoramento pausado)"};
-    private readonly CheckBox zdr=new(){Content="Exigir ZDR e negar coleta em todas as etapas"};
+    private readonly CheckBox zdr=new(){Content="Exigir ZDR e negar coleta nos modelos (STT, JEV e resposta)"};
     private readonly CheckBox search=new(){Content="Permitir pesquisa online quando necessária (custo adicional)"};
     private readonly CheckBox reduceMotion=new(){Content="Reduzir movimento do indicador (respeita também a preferência do Windows)"};
     private readonly TextBox close=new(),minute=new(),session=new(),vad=new(),maxAudio=new();
@@ -46,9 +46,7 @@ public sealed class SettingsWindow : Window
         var refresh=Ui.Button("Atualizar catálogo público",()=>_=Refresh());refresh.IsEnabled=!controller.Demo;stack.Children.Add(refresh);
         stack.Children.Add(Ui.Text("Catálogo incluído: 03/10/2026. Atualize para conferir disponibilidade atual. Escolha o modelo de resposta antes de ativar.",12,Ui.Muted));
         stack.Children.Add(zdr);stack.Children.Add(search);
-        stack.Children.Add(Ui.Text("O modelo escolhe se precisa pesquisar. Até uma consulta por resposta, com custo adicional e envio da consulta ao serviço de busca. ZDR bloqueia essa ferramenta: a política do modelo não cobre a retenção do buscador.",12,Ui.Muted));
-        void SearchPrivacy(){search.IsEnabled=zdr.IsChecked!=true;}
-        zdr.Checked+=(_,_)=>SearchPrivacy();zdr.Unchecked+=(_,_)=>SearchPrivacy();
+        stack.Children.Add(Ui.Text("O modelo escolhe se precisa pesquisar. Até uma consulta Exa por resposta, com custo adicional. A busca envia consultas à Exa, cuja retenção não é coberta pelo ZDR do modelo. As duas opções são independentes.",12,Ui.Muted));
         stack.Children.Add(Ui.Text("Ao ativar, segmentos de áudio vão ao OpenRouter/STT; transcrição e contexto vão ao JEV e ao modelo de resposta. ZDR exige rotas compatíveis e pode impedir chamadas. Consulte a política dos provedores.",13,Ui.Muted));
         Section(stack,"Sessão e exibição");stack.Children.Add(memory);stack.Children.Add(startup);Field(stack,"Fechar resposta após (5–300 segundos)",close);
         stack.Children.Add(Ui.Text("Memória e histórico ficam apenas em RAM; limpar cancela o processamento atual. O popover preserva sua posição enquanto você lê.",13,Ui.Muted));
@@ -59,7 +57,7 @@ public sealed class SettingsWindow : Window
         stack.Children.Add(Ui.Text("Silero filtra silêncio e parte dos ruídos localmente. Não distingue perguntas, TV ou falantes. Em ambiente ruidoso, pause pela bandeja. Perguntas só são classificadas pelo JEV após a transcrição.",13,Ui.Muted));
         stack.Children.Add(Ui.Text("Até três chamadas HTTP por pergunta, além de uma busca opcional. Falas ignoradas pelo JEV usam STT e classificação e também contam no limite. Ao atingir o limite, aguarde o tempo indicado; repetir a pergunta não acelera a recuperação. A fila guarda até duas falas por 30 s; excesso substitui a pendente mais antiga. Pausar/limpar apaga a fila. Sem repetição automática. O limite total só reinicia ao sair do app.",13,Ui.Muted));stack.Children.Add(notice);
         stack.Children.Insert(stack.Children.IndexOf(memory)+1,reduceMotion);
-        var s=controller.Settings;memory.IsChecked=s.Memory;search.IsChecked=s.EnableWebSearch;startup.IsChecked=s.StartWithWindows;zdr.IsChecked=s.RequireZdr;reduceMotion.IsChecked=s.ReduceMotion;SearchPrivacy();
+        var s=controller.Settings;memory.IsChecked=s.Memory;search.IsChecked=s.EnableWebSearch;startup.IsChecked=s.StartWithWindows;zdr.IsChecked=s.RequireZdr;reduceMotion.IsChecked=s.ReduceMotion;
         close.Text=s.CloseSeconds.ToString();minute.Text=s.CallsPerMinute.ToString();session.Text=s.SessionCallLimit.ToString();vad.Text=s.SpeechProbability.ToString(System.Globalization.CultureInfo.CurrentCulture);maxAudio.Text=s.MaxAudioSeconds.ToString();
         Populate(s.SttModel,s.JevModel,s.AnswerModel);
         Closed+=(_,_)=>{usageTimer.Stop();lifetime.Cancel();lifetime.Dispose();};
