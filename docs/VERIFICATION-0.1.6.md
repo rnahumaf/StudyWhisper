@@ -1,0 +1,7 @@
+# Verificação 0.1.6, 04/10/2026
+
+88/88 testes de núcleo e mocks passaram, incluindo os dez pares exatos no JEV e resposta, exclusão de falhas/ignorados, limpar, busca opcional limitada, fontes seguras, ZDR/opt-out, Markdown e cópia. Uma expectativa antiga que achatava quebras de linha foi atualizada para o novo contrato. 72/72 verificações WPF passaram, com renderização nativa de resposta longa, negrito/itálico/listas/código, links injetados sem navegador, HTML literal, altura dinâmica, rolagem, área de trabalho, DPI raster 96/144/192 e estado de limite sem triângulo de erro. As verificações anteriores do círculo continuam incluídas.
+
+Múltiplas falas negativas seguidas de pergunta e duas repetições foram reproduzidas com relógio controlado. O limite local não gerou HTTP adicional durante a espera e recuperou após 60 s. HTTP 429 com Retry-After de 37 s e limite de sessão também foram diferenciados. Não há log real que confirme a causa do episódio relatado; detalhes em [CONVERSATION.md](CONVERSATION.md). Os testes não contornam limites nem fazem chamadas pagas reais.
+
+Evidências locais: `artifacts/0.1.6-test-results.txt`, `artifacts/ui-smoke-0.1.6`, `artifacts/0.1.6-build-results.txt` e `artifacts/package-ui-smoke-0.1.6`. Não foram testados microfone pessoal, autenticação real, inferência/busca remota, qualidade editorial e clínica dos modelos, instalação por outro usuário, notebook fraco, Windows limpo ou vários monitores físicos. O instalador é sem assinatura digital. A sessão ativa não foi reiniciada nem atualizada pelo agente.

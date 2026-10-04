@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup><ItemGroup><EmbeddedResource Include="catalog.json" /><EmbeddedResource Include="Models/silero-vad-6.2.3-16k.onnx" /><PackageReference Include="Markdig" Version="1.4.0" /><PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" /></ItemGroup></Project>

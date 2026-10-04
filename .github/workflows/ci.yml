@@ -1,0 +1,21 @@
+name: Windows tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.0.x'
+      - name: Mock and synthetic audio tests, plus native WPF checks
+        shell: pwsh
+        run: ./scripts/Test.ps1 -Ui

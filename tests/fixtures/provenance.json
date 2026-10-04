@@ -1,0 +1,23 @@
+﻿[
+    {
+        "file":  "pt-BR-question.wav",
+        "text":  "Qual é a diferença entre mitose e meiose?",
+        "generator":  "Windows SAPI TTS, OneCore Microsoft Daniel pt-BR",
+        "format":  "PCM16 mono 16000 Hz",
+        "sha256":  "C47EA77BB03B63C4CD6C02AB8D38A8D65D04B15379A0995ED70CAEEEF6400A43"
+    },
+    {
+        "file":  "pt-BR-short-question.wav",
+        "text":  "Por quê?",
+        "generator":  "Windows SAPI TTS, OneCore Microsoft Daniel pt-BR",
+        "format":  "PCM16 mono 16000 Hz",
+        "sha256":  "0C9BF8668D6A6E0F492E1EFC4A0CD297B313ABC33CFDEB2E23499D2B0CDCB8FA"
+    },
+    {
+        "file":  "pt-BR-comment.wav",
+        "text":  "Isso é interessante. Entendi a explicação.",
+        "generator":  "Windows SAPI TTS, OneCore Microsoft Daniel pt-BR",
+        "format":  "PCM16 mono 16000 Hz",
+        "sha256":  "5390250DB65383A75AA189FEC05207098D43DDC171D6DAF698A6683B76D84A36"
+    }
+]

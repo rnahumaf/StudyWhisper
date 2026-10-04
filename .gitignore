@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+artifacts/
+.vs/
+*.user
+*.key
+*.dpapi
+.env
+.env.*
+settings.json
+*.log
