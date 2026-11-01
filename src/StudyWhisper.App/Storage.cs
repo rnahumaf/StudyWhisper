@@ -5,6 +5,8 @@ using Microsoft.Win32;
 using StudyWhisper.Core;
 namespace StudyWhisper.App;
 
+public sealed record UpdateSession(Turn[] History,long UsedCalls,bool WasListening,SessionSnapshot? CounterState=null);
+
 public sealed class Storage(string root)
 {
     public static string DefaultRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"StudyWhisper");
@@ -15,7 +17,33 @@ public sealed class Storage(string root)
         catch(Exception ex) when(ex is IOException or JsonException or ArgumentException or UnauthorizedAccessException) { return new(); }
     }
     public void Save(Settings s) { s.Validate(); Directory.CreateDirectory(root); Atomic(Path.Combine(root,"settings.json"),JsonSerializer.SerializeToUtf8Bytes(s,new JsonSerializerOptions{WriteIndented=true})); }
+    public void RecordCaptureFault(string state,int attempt,string operation,uint code,string category)
+    {
+        // Bounded local metadata only: never exception messages, device names, PCM, transcript, key or answer.
+        try
+        {
+            Directory.CreateDirectory(root);var file=Path.Combine(root,"capture-diagnostics.log");
+            if(File.Exists(file)&&new FileInfo(file).Length>32_768)File.Move(file,file+".previous",true);
+            File.AppendAllText(file,$"{DateTimeOffset.UtcNow:O} capture {state} attempt={attempt} operation={operation} code={code} category={category}\n");
+        }
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException){}
+    }
     private static void Atomic(string file,byte[] data) { File.WriteAllBytes(file+".tmp",data); File.Move(file+".tmp",file,true); }
+    public UpdateSession? ReadUpdateSession()
+    {
+        // Only an explicit local update handoff is persisted. Normal history remains RAM-only.
+        var file=Path.Combine(root,"update-session.dpapi");if(!File.Exists(file))return null;byte[]? plain=null;
+        try
+        {
+            if(new FileInfo(file).Length>1_000_000)return null;
+            plain=Protect(File.ReadAllBytes(file),true);var state=JsonSerializer.Deserialize<UpdateSession>(plain);
+            if(state is null||state.UsedCalls<0||state.History is null||state.History.Length>30||state.History.Any(t=>t.Question is null||t.Answer is null||t.Question.Length>4000||t.Answer.Length>12000))return null;
+            return state;
+        }
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or JsonException or System.ComponentModel.Win32Exception){return null;}
+        finally{if(plain is not null)Array.Clear(plain);}
+    }
+    public void CompleteUpdateSession(){try{File.Delete(Path.Combine(root,"update-session.dpapi"));}catch(Exception ex) when(ex is IOException or UnauthorizedAccessException){}}
     public void SaveKey(string secret)
     {
         Directory.CreateDirectory(root); var bytes=Encoding.UTF8.GetBytes(secret);

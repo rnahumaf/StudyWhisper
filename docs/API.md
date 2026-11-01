@@ -10,9 +10,9 @@ Verificados em 03/10/2026 por documentação oficial e consultas públicas sem a
 | JEV | `POST /api/alpha/decisions` | `model`, `state.transcript`, `state.recent_context`, `questions.action` tipo `choice`, instruções e três critérios; ler `answers.action` |
 | Resposta | `POST /api/v1/chat/completions` | Mensagens textuais system/user/assistant, `stream=false`, `max_tokens=1400`; ler `choices[0].message.content` |
 
-Todos os endereços são fixos sob `https://openrouter.ai/`. O HTTP não segue redirects. O orçamento compartilhado conta inferências, inclusive falhas, e mantém cooldown de HTTP 429. Respostas HTTP são limitadas a 8 MB; não são exibidos corpos de erro, chaves, labels de conta ou metadados de autenticação.
+Todos os endereços são fixos sob `https://openrouter.ai/`. O HTTP não segue redirects. A contabilidade compartilhada conta tentativas de inferência, inclusive falhas, e mantém cooldown de HTTP 429. Desde 0.1.12 não há teto local de quantidade de chamadas ou gasto. Respostas HTTP são limitadas a 8 MB; não são exibidos corpos de erro, chaves, labels de conta ou metadados de autenticação.
 
-STT padrão `openai/whisper-large-v3-turbo` e JEV padrão `typesafe/jev-1.13` foram encontrados no catálogo público. O modelo de resposta deve ser escolhido pelo usuário. Modelos de chat com áudio não são apresentados como STT; `typesafe/jev-router` não é apresentado como classificador. O catálogo incluído é uma conveniência datada; atualização e seleção validam a modalidade, sem prometer saldo, acesso ou sucesso na conta.
+STT padrão `openai/whisper-large-v3-turbo` e JEV padrão `typesafe/jev-1.14` foram encontrados no catálogo público. O modelo de resposta deve ser escolhido pelo usuário. Modelos de chat com áudio não são apresentados como STT; `typesafe/jev-router` não é apresentado como classificador. O catálogo incluído é uma conveniência datada; atualização e seleção validam a modalidade, sem prometer saldo, acesso ou sucesso na conta.
 
 JEV é um modelo textual de decisões, não chat. O app não tenta fazê-lo receber áudio ou gerar respostas livres. Suas probabilidades expressam a distribuição entre critérios; não comprovam precisão de classificação em português.
 
@@ -37,3 +37,5 @@ Desde 0.1.2, JEV responde somente a perguntas claras (inclusive contextuais e se
 
 
 Em 04/10/2026 foi conferido o contrato oficial de [Web Search Server Tool](https://openrouter.ai/docs/guides/features/server-tools/web-search). A implementação opcional, os limites e a retenção são descritos em [Conversa 0.1.7](CONVERSATION.md). Desde 0.1.7, a ferramenta Exa pode operar com ZDR na inferência, preservando `provider.zdr=true` e `data_collection=deny`. Retenção da Exa é independente; o bloqueio da 0.1.6 era uma escolha incorreta do app, removida. Não houve chamada real autenticada de busca.
+
+Em 15/10/2026, o catálogo de decisões e o endpoint público confirmaram `typesafe/jev-1.14`, revisão `typesafe/jev-1.14-20261014`, com entrada textual e saída `decisions`. A versão local 0.1.9 mantém `POST /api/alpha/decisions` e o contrato `answers.action` do tipo `choice`, incluindo probabilidades e limiar 0,65. JEV 1.13 e o alias latest permanecem no catálogo para seleção manual. Falhas continuam interrompendo o fluxo, sem repetição automática, troca silenciosa de modelo ou relaxamento de ZDR/coleta.

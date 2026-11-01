@@ -47,3 +47,31 @@ O overlay permanece 72 × 72 DIP em toda etapa. OrbWindow seleciona uma única L
 
 
 Pesquisa, Markdown, estilos e diagnóstico de limites: veja [Conversa 0.1.6](CONVERSATION.md).
+
+## Recuperação local e fechamento externo, 0.1.10
+
+`Microphone` relata operação, código WinMM e categoria da falha, sem mensagens externas nem conteúdo capturado. `CaptureRecovery` descarta e fecha a instância de captura que falhou, reinicia somente o estado acústico e tenta uma nova entrada com espera progressiva limitada a 60 s. Uma geração e um token impedem reabertura após pausar, sair ou substituir a captura. O callback de falha não espera o próprio worker; fechamento e reconexão ocorrem fora dele. Falha de formato ou dependência não entra em repetição infinita. Diagnóstico local é limitado a dois arquivos de aproximadamente 32 KiB de metadados.
+
+A recuperação não chama `Pipeline.Pause`, não apaga histórico/fila e não recria STT, decisão ou resposta já em execução. Os limites e a expiração normal da fila continuam vigentes. Pausa explícita continua cancelando e limpando áudio temporário. Nenhuma chamada paga é repetida automaticamente e nenhuma política de provedor é relaxada.
+
+`OutsideClickDismissal` observa apenas pressionamentos de botões enquanto o menu ou histórico está visível; compara os limites das janelas, agenda o fechamento no dispatcher e devolve o evento ao Windows. Não guarda coordenadas nem eventos. Clique dentro, navegação nativa e o menu da bandeja são preservados. Fechar uma superfície remove o observador; ocultar o histórico não pausa o pipeline. O círculo é considerado parte da superfície do histórico para permitir seu clique de alternância normal.
+
+## Continuidade e indicadores de entrada, 0.1.11
+
+Após uma fronteira forçada, `quiet` inclui silêncio de antes do corte, mas `segment` retém somente a sobreposição. Subtrair todo esse silêncio do novo segmento produzia um índice negativo. O recorte agora é limitado ao trecho presente; `exportedUntil` impede reemitir uma cauda cujo fim já foi exportado. O bloco de probabilidade é limpo em `finally`, mesmo quando o consumidor falha.
+
+O callback local contém falhas do filtro e tenta reiniciar seu estado sem fechar WinMM. Três falhas consecutivas ou dependência indisponível bloqueiam o processamento com aviso, enquanto contadores distinguem entrada de dados e processamento. O encerramento desabilita o pipeline antes de esperar o worker, impedindo um novo envio a partir do último quadro em voo.
+
+`CaptureRecovery` confirma Ready somente no primeiro quadro de uma fonte válida. Conta quadros/amostras, idade do último quadro e aberturas. Um watchdog de 500 ms verifica ausência de quadros por dois segundos; recuperação usa 100, 250, 500 ms, 1, 2 e até 5 s. A identidade da fonte e a geração recusam falhas e callbacks antigos, inclusive após nova captura. Nenhuma repetição paga é introduzida.
+
+O limite remoto continua intacto. Uma nova pergunta necessita margem de até três chamadas; com 299/300 usadas, novos envios são bloqueados, mas a entrada continua capturando e filtrando. O indicador de microfone com legenda Limite exige quadros recentes; a espera de captura real permanece distinta no aviso e nos contadores.
+
+Um arquivo `update-session.dpapi` existe somente para uma transferência local explicitamente autorizada de atualização. Histórico e orçamento são lidos sem alterar `settings.json` ou a chave, e o estado anterior pode retomar a escuta após o preflight. O arquivo é apagado após os primeiros quadros. Não há gravação de áudio, persistência automática de sessões normais ou relaxamento da política de provedor.
+
+A saída do 0.1.10 também foi observada bloqueada em `StylusWisp.WispTabletDeviceCollection` / `PenThreadWorker.WorkerGetTabletsInfo`, após as janelas e a captura já terem fechado. O runtimeconfig do 0.1.11 habilita a pilha WPF WM_POINTER, suportada no Windows 10/11, para evitar a enumeração WISP nesse caminho. A validação do pacote e a saída/reabertura real conferem o encerramento; mouse e teclado permanecem nativos.
+
+## Contabilidade sem teto interno, 0.1.12
+
+`CallTracker` substitui `CallBudget`: guarda somente a contagem acumulada e o cooldown comunicado pelo provedor. Não mantém bucket por minuto, teto por sessão, reserva de três chamadas nem teto monetário. O preflight verifica apenas cooldown; cada tentativa de inferência incrementa a contagem, inclusive falhas. `usage.cost` continua sendo contabilizado por etapa quando informado. Catálogo e validação de chave não contam como inferência; a busca opcional pode gerar custo dentro da resposta sem constituir outra requisição de inferência feita pelo app.
+
+Os campos `CallsPerMinute` e `SessionCallLimit` foram removidos do modelo de configuração e da interface. Uma atualização preserva o contador existente e o snapshot de contadores/custos; não zera o histórico para fazer o processamento voltar. `RestoreUsedForUpdate` aceita contagem não negativa sem limiar máximo de negócio. O armazenamento numérico usa 64 bits. Os limites técnicos de payload, fila, contexto, tokens, busca por resposta e cancelamento continuam vigentes.

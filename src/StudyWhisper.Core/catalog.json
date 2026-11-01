@@ -1,4 +1,17 @@
 [
+  {"Id":"deepseek/deepseek-v4.1-flash-1017","Name":"DeepSeek: DeepSeek V4.1 Flash 1017","Input":["text","image"],"Output":["text"]},
+  {
+    "Input": [
+      "text",
+      "image"
+    ],
+    "Output": [
+      "decisions"
+    ],
+    "Name": "TypeSafe: Jev 1.14",
+    "Id": "typesafe/jev-1.14"
+  },
+
   {
     "Input": [
       "text"

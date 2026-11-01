@@ -155,9 +155,9 @@ Async("Pending queue expires without sending stale audio",async()=>{
     var stale=Audio();var second=p.SubmitAsync(stale);at+=TimeSpan.FromSeconds(31);Assert(p.QueueDepth==0&&!await second&&stale.All(x=>x==0));mock.Release.SetResult();await first;
     Assert(mock.Calls.Count==3&&c.Snapshot().QueueExpired==1);
 });
-Async("Queued question respects shared HTTP call budget without retry",async()=>{
-    var h=new MockHttp{BlockFirst=true};using var http=new HttpClient(h);var budget=new CallBudget(3,3);var c=new SessionCounters();var api=new OpenRouter(http,()=>"TEST-ONLY",new(),budget,counters:c);using var p=new Pipeline(api,new(),counters:c);p.Enable();
-    var first=p.SubmitAsync(Audio());await h.Entered.Task;var second=p.SubmitAsync(Audio());h.Release.SetResult();await Task.WhenAll(first,second);Assert(h.Paths.Count==3&&budget.Used==3&&p.History.Count==1&&c.Snapshot().Calls==3);
+Async("Queued questions complete without a local HTTP ceiling or duplicate requests",async()=>{
+    var h=new MockHttp{BlockFirst=true};using var http=new HttpClient(h);var budget=new CallTracker();var c=new SessionCounters();var api=new OpenRouter(http,()=>"TEST-ONLY",new(),budget,counters:c);using var p=new Pipeline(api,new(),counters:c);p.Enable();
+    var first=p.SubmitAsync(Audio());await h.Entered.Task;var second=p.SubmitAsync(Audio());h.Release.SetResult();await Task.WhenAll(first,second);Assert(h.Paths.Count==6&&budget.Used==6&&p.History.Count==2&&c.Snapshot().Calls==6);
 });
 Async("HTTP usage cost and attempted STT duration counted; absent cost unknown",async()=>{
     foreach(var amount in new decimal?[]{null,0,.000123m}){
@@ -198,8 +198,8 @@ Async("Memory default includes previous turns; disabled memory still retains his
 Async("Session history bounded to 30; context bounded to ten completed pairs",async()=>{var mock=new MockApi();using var p=new Pipeline(mock,new());p.Enable();for(int i=0;i<40;i++)await p.SubmitAsync(Audio());Assert(p.History.Count==30&&mock.MemoryCount==10);});
 Add("Markdown structure survives display bounding",()=>{var text=Pipeline.Compact("**Título**\n\n"+new string('x',7000));Assert(text.Length<=6000&&text.Contains('\n')&&text.StartsWith("**Título**"));});
 Add("Popover close clock freezes on interaction",()=>{var clock=new PopoverClock();clock.Reset(5);Assert(!clock.Tick(TimeSpan.FromSeconds(4),false));Assert(!clock.Tick(TimeSpan.FromSeconds(100),true));Assert(clock.Tick(TimeSpan.FromSeconds(1),false));});
-Add("Call budget enforces minute/session limits including failed calls",()=>{var now=DateTimeOffset.UtcNow;var budget=new CallBudget(3,4,()=>now);for(int i=0;i<3;i++)budget.Take();Throws<ApiException>(budget.Take);now+=TimeSpan.FromSeconds(60);budget.Take();Throws<ApiException>(budget.Take);Assert(budget.Used==4);});
-Add("429 cooldown blocks calls without retry and persists configuration",()=>{var now=DateTimeOffset.UtcNow;var budget=new CallBudget(3,4,()=>now);budget.Take();budget.Cooldown(TimeSpan.FromSeconds(120));budget.Configure(10,4);Throws<ApiException>(budget.Take);now+=TimeSpan.FromSeconds(121);budget.Take();Assert(budget.Used==2);});
+Add("Call accounting has no minute or session ceiling",()=>{var now=DateTimeOffset.UtcNow;var budget=new CallTracker(()=>now);for(int i=0;i<500;i++)budget.Take();budget.EnsureAvailable();Assert(budget.Used==500);now+=TimeSpan.FromSeconds(60);budget.Take();Assert(budget.Used==501);});
+Add("429 cooldown blocks calls without retry and survives accounting restoration",()=>{var now=DateTimeOffset.UtcNow;var budget=new CallTracker(()=>now);budget.Take();budget.Cooldown(TimeSpan.FromSeconds(120));budget.RestoreUsedForUpdate(budget.Used);Throws<ApiException>(budget.Take);now+=TimeSpan.FromSeconds(121);budget.Take();Assert(budget.Used==2);});
 Async("HTTP mocks verify official endpoints, textual JEV and ZDR on every call",async()=>
 {
     var handler=new MockHttp();using var http=new HttpClient(handler);var api=new OpenRouter(http,()=>"TEST-ONLY",new Settings{AnswerModel="mock/text",RequireZdr=true});using var p=new Pipeline(api,new());p.Enable();await p.SubmitAsync(Audio());
@@ -207,7 +207,7 @@ Async("HTTP mocks verify official endpoints, textual JEV and ZDR on every call",
     var stt=handler.Bodies[0];Assert(stt.GetProperty("input_audio").GetProperty("format").GetString()=="wav"&&stt.GetProperty("response_format").GetString()=="json");Assert(Convert.FromBase64String(stt.GetProperty("input_audio").GetProperty("data").GetString()!).Length==32044);
     Assert(handler.Bodies[1].GetProperty("state").GetProperty("transcript").GetString()=="O que é mitose?");Assert(!handler.Bodies[1].ToString().Contains("input_audio"));Assert(!handler.Bodies[2].TryGetProperty("audio",out _));Assert(p.History.Count==1);
 });
-Async("Validation sends user supplied candidate to GET key, no inference",async()=>{var handler=new MockHttp();using var http=new HttpClient(handler);var api=new OpenRouter(http,()=>throw new Exception("Must not load stored credentials"),new());await api.ValidateKeyAsync("TEST-ONLY",default);Assert(handler.Paths.SequenceEqual(new[]{"/api/v1/key"})&&api.Budget.Used==0);});
+Async("Validation sends user supplied candidate to GET key, no inference",async()=>{var handler=new MockHttp();using var http=new HttpClient(handler);var api=new OpenRouter(http,()=>throw new Exception("Must not load stored credentials"),new());await api.ValidateKeyAsync("TEST-ONLY",default);Assert(handler.Paths.SequenceEqual(new[]{"/api/v1/key"})&&api.Tracker.Used==0);});
 Async("Catalog uses requested modality and no Authorization",async()=>{var handler=new MockHttp();using var http=new HttpClient(handler);var api=new OpenRouter(http,()=>throw new Exception("Must not load credentials"),new());await api.ModelsAsync("transcription",default);Assert(handler.Queries.Single()=="?output_modalities=transcription"&&!handler.Auth.Single());});
 Async("HTTP errors are redacted and never retried",async()=>{var handler=new MockHttp{Error=HttpStatusCode.Unauthorized};using var http=new HttpClient(handler);var api=new OpenRouter(http,()=>"TEST-ONLY",new());try{await api.TranscribeAsync(Audio(),default);throw new Exception("Expected rejection");}catch(ApiException e){Assert(!e.Message.Contains("SECRET_REMOTE_BODY"));}Assert(handler.Paths.Count==1);});
 Async("Timeout while reading response body becomes an error without retry",async()=>{var handler=new MockHttp{StallBody=true};using var http=new HttpClient(handler);var api=new OpenRouter(http,()=>"TEST-ONLY",new(),requestTimeout:TimeSpan.FromMilliseconds(30));try{await api.TranscribeAsync(Audio(),default);throw new Exception("Expected timeout");}catch(ApiException e){Assert(e.Message.Contains("prazo"));}Assert(handler.Paths.Count==1);});
@@ -248,29 +248,31 @@ Async("Current response returns discrete citations, deduplicated safe URLs and a
 Async("Search opt-out omits tool both with and without ZDR",async()=>{
     foreach(var settings in new[]{new Settings{RequireZdr=true,EnableWebSearch=false},new Settings{EnableWebSearch=false}}){var mock=new MockHttp();using var http=new HttpClient(mock);var api=new OpenRouter(http,()=>"TEST-ONLY",settings);await api.AnswerAsync("Qual o preço atual?",Array.Empty<Turn>(),default);var body=mock.Bodies.Single();Assert(!body.TryGetProperty("tools",out _)&&!body.TryGetProperty("max_tool_calls",out _));Assert(body.GetProperty("messages")[0].GetProperty("content").GetString()!.Contains("não foi verificado"));if(settings.RequireZdr)Assert(body.GetProperty("provider").GetProperty("zdr").GetBoolean()&&body.GetProperty("provider").GetProperty("data_collection").GetString()=="deny");}
 });
-Async("Repeated negatives then question hit local budget, do not retry, and recover after window",async()=>{
-    var now=DateTimeOffset.UtcNow;var budget=new CallBudget(12,300,()=>now);var mock=new MockHttp{JevJson=Fixtures.Jev.Replace("\"choice\":\"responder\"","\"choice\":\"ignorar\"")};
+Async("Repeated negatives do not block later questions at the former minute ceiling",async()=>{
+    var now=DateTimeOffset.UtcNow;var budget=new CallTracker(()=>now);var mock=new MockHttp{JevJson=Fixtures.Jev.Replace("\"choice\":\"responder\"","\"choice\":\"ignorar\"")};
     using var http=new HttpClient(mock);var api=new OpenRouter(http,()=>"TEST-ONLY",new(),budget);using var p=new Pipeline(api,new(),()=>now);var statuses=new List<Status>();p.Changed+=statuses.Add;p.Enable();
     for(var i=0;i<5;i++)await p.SubmitAsync(Audio());Assert(mock.Paths.Count==10&&p.History.Count==0&&budget.Used==10);
     mock.JevJson=Fixtures.Jev;var wav=Audio();await p.SubmitAsync(wav);await p.SubmitAsync(Audio());await p.SubmitAsync(Audio());
-    Assert(mock.Paths.Count==10&&wav.All(x=>x==0)&&statuses.Last().Phase==Phase.Throttled&&statuses.Last().Message.Contains("local por minuto")&&statuses.Last().Message.Contains("60 s"));
-    now+=TimeSpan.FromSeconds(59);await p.SubmitAsync(Audio());Assert(mock.Paths.Count==10&&statuses.Last().Message.Contains("1 s"));
-    now+=TimeSpan.FromSeconds(1);await p.SubmitAsync(Audio());Assert(mock.Paths.Count==13&&p.History.Count==1&&budget.Used==13&&statuses.Last().Phase==Phase.Listening);
+    Assert(mock.Paths.Count==19&&wav.All(x=>x==0)&&p.History.Count==3&&budget.Used==19&&statuses.All(x=>x.Phase!=Phase.Throttled));
+    now+=TimeSpan.FromSeconds(59);await p.SubmitAsync(Audio());Assert(mock.Paths.Count==22&&p.History.Count==4);
+    now+=TimeSpan.FromSeconds(1);await p.SubmitAsync(Audio());Assert(mock.Paths.Count==25&&p.History.Count==5&&budget.Used==25&&statuses.Last().Phase==Phase.Listening);
 });
 Async("Remote 429 Retry-After differs from local budget and blocks repeats without network",async()=>{
-    var now=DateTimeOffset.UtcNow;var budget=new CallBudget(12,300,()=>now);var mock=new MockHttp{Error=HttpStatusCode.TooManyRequests,RetrySeconds=37};using var http=new HttpClient(mock);var api=new OpenRouter(http,()=>"TEST-ONLY",new(),budget);
+    var now=DateTimeOffset.UtcNow;var budget=new CallTracker(()=>now);var mock=new MockHttp{Error=HttpStatusCode.TooManyRequests,RetrySeconds=37};using var http=new HttpClient(mock);var api=new OpenRouter(http,()=>"TEST-ONLY",new(),budget);
     using var p=new Pipeline(api,new(),()=>now);var statuses=new List<Status>();p.Changed+=statuses.Add;p.Enable();await p.SubmitAsync(Audio());
     Assert(statuses.Last().Phase==Phase.Throttled&&statuses.Last().Message.Contains("HTTP 429")&&statuses.Last().Message.Contains("37 s")&&mock.Paths.Count==1);
     await p.SubmitAsync(Audio());Assert(mock.Paths.Count==1);mock.Error=null;now+=TimeSpan.FromSeconds(37);await p.SubmitAsync(Audio());Assert(mock.Paths.Count==4&&p.History.Count==1);
 });
-Async("Session budget exhaustion stays throttle and cannot recover by waiting",async()=>{
-    var now=DateTimeOffset.UtcNow;var budget=new CallBudget(12,3,()=>now);var mock=new MockHttp();using var http=new HttpClient(mock);var api=new OpenRouter(http,()=>"TEST-ONLY",new(),budget);using var p=new Pipeline(api,new(),()=>now);var statuses=new List<Status>();p.Changed+=statuses.Add;p.Enable();await p.SubmitAsync(Audio());now+=TimeSpan.FromHours(1);await p.SubmitAsync(Audio());Assert(mock.Paths.Count==3&&statuses.Last().Phase==Phase.Throttled&&statuses.Last().Message.Contains("sessão"));
+Async("Full processing continues past 300 calls without resetting accounting",async()=>{
+    var now=DateTimeOffset.UtcNow;var budget=new CallTracker(()=>now);budget.RestoreUsedForUpdate(299);var mock=new MockHttp();using var http=new HttpClient(mock);var api=new OpenRouter(http,()=>"TEST-ONLY",new(),budget);using var p=new Pipeline(api,new(),()=>now);var statuses=new List<Status>();p.Changed+=statuses.Add;p.Enable();
+    await p.SubmitAsync(Audio());Assert(mock.Paths.Count==3&&budget.Used==302&&p.History.Count==1);
+    for(var i=1;i<110;i++)await p.SubmitAsync(Audio());Assert(mock.Paths.Count==330&&budget.Used==629&&p.History.Count==30&&statuses.All(x=>x.Phase!=Phase.Throttled));
 });
 
 Async("Remote 429 in STT, JEV or answer uses shared cooldown and recovers without duplicate history",async()=>{
     foreach(var path in new[]{"/api/v1/audio/transcriptions","/api/alpha/decisions","/api/v1/chat/completions"})
     {
-        var now=DateTimeOffset.UtcNow;var budget=new CallBudget(12,300,()=>now);var mock=new MockHttp{Error=HttpStatusCode.TooManyRequests,ErrorOnlyPath=path,RetrySeconds=17};
+        var now=DateTimeOffset.UtcNow;var budget=new CallTracker(()=>now);var mock=new MockHttp{Error=HttpStatusCode.TooManyRequests,ErrorOnlyPath=path,RetrySeconds=17};
         using var http=new HttpClient(mock);var api=new OpenRouter(http,()=>"TEST-ONLY",new(),budget);using var p=new Pipeline(api,new(),()=>now);var statuses=new List<Status>();p.Changed+=statuses.Add;p.Enable();
         var wav=Audio();await p.SubmitAsync(wav);var calls=mock.Paths.Count;
         Assert(p.History.Count==0&&wav.All(x=>x==0)&&statuses.Last().Phase==Phase.Throttled&&statuses.Last().Message.Contains(path.Split('/').Last()));

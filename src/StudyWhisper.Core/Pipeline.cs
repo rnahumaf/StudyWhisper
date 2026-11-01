@@ -19,6 +19,9 @@ public sealed class Pipeline : IDisposable
     private CancellationTokenSource lifetime = new();
     private int generation;
     private bool busy, enabled;
+    private TaskCompletionSource<bool> idle = CompletedIdle();
+    private static TaskCompletionSource<bool> CompletedIdle(){var result=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);result.SetResult(true);return result;}
+    public Task WhenIdle {get{lock(sync)return idle.Task;}}
     private string pending = "";
     private DateTimeOffset pendingAt;
     private readonly Func<DateTimeOffset> now;
@@ -70,7 +73,7 @@ public sealed class Pipeline : IDisposable
                 if(queue.Count==QueueCapacity){var old=queue.Dequeue();Array.Clear(old.Wav);old.Done.TrySetResult(false);counters?.OverflowQueued();Flow?.Invoke(new(FlowKind.Overflow,generation,work.Id,QueueCapacity));Changed?.Invoke(new(Phase.Discarded,"Fila cheia. Fala mais recente preservada; a pendente mais antiga foi descartada."));}
                 queue.Enqueue(work);counters?.Queue(queue.Count,true);Flow?.Invoke(new(FlowKind.Queued,generation,work.Id,queue.Count));return work.Done.Task;
             }
-            busy=true;
+            busy=true;idle=new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
         _=DrainAsync(work);return work.Done.Task;
     }
@@ -82,7 +85,7 @@ public sealed class Pipeline : IDisposable
             lock(sync)
             {
                 ExpireQueue();
-                if(disposed||!enabled||queue.Count==0){busy=false;return;}
+                if(disposed||!enabled||queue.Count==0){busy=false;idle.TrySetResult(true);return;}
                 work=queue.Dequeue();counters?.Queue(queue.Count);Flow?.Invoke(new(FlowKind.Dequeued,generation,work.Id,queue.Count));
             }
         }

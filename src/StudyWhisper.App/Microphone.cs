@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 namespace StudyWhisper.App;
 
 /// <summary>WaveIn event mode: no WinMM calls from a native callback; four fixed PCM buffers.</summary>
-public sealed class Microphone : IDisposable
+public sealed class Microphone : IAudioCapture
 {
     [StructLayout(LayoutKind.Sequential,Pack=2)] private struct Format { public ushort Tag,Channels; public uint Rate,BytesPerSecond; public ushort Align,Bits,Extra; }
     [StructLayout(LayoutKind.Sequential)] private struct Header { public IntPtr Data; public uint Length,Recorded; public UIntPtr User; public uint Flags,Loops; public IntPtr Next; public UIntPtr Reserved; }
@@ -21,21 +21,21 @@ public sealed class Microphone : IDisposable
     private bool disposed;
     private Task? worker;
     public event Action<short[]>? Frame;
-    public event Action? Failed;
-    private static void Check(uint error) { if(error!=0) throw new InvalidOperationException("Não foi possível iniciar a entrada de áudio do Windows."); }
+    public event Action<CaptureFault>? Failed;
+    private static void Check(uint error,string operation) { if(error!=0) throw new CaptureException(new(operation,error,Recoverable:error is not (11 or 32))); }
     public void Start()
     {
         if(handle!=IntPtr.Zero) throw new InvalidOperationException("Captura já iniciada.");
         var format=new Format{Tag=1,Channels=1,Rate=Vad.Rate,BytesPerSecond=Vad.Rate*2,Align=2,Bits=16};
         try
         {
-            Check(waveInOpen(out handle,uint.MaxValue,ref format,ready.SafeWaitHandle.DangerousGetHandle(),IntPtr.Zero,0x00050000));
+            Check(waveInOpen(out handle,uint.MaxValue,ref format,ready.SafeWaitHandle.DangerousGetHandle(),IntPtr.Zero,0x00050000),"abrir");
             for(int i=0;i<4;i++)
             {
                 var pointer=Marshal.AllocHGlobal((int)size); var h=new Header{Data=Marshal.AllocHGlobal(Vad.FrameSamples*2),Length=Vad.FrameSamples*2};
-                Marshal.StructureToPtr(h,pointer,false); buffers.Add(pointer); Check(waveInPrepareHeader(handle,pointer,size)); Check(waveInAddBuffer(handle,pointer,size));
+                Marshal.StructureToPtr(h,pointer,false); buffers.Add(pointer); Check(waveInPrepareHeader(handle,pointer,size),"preparar"); Check(waveInAddBuffer(handle,pointer,size),"enfileirar");
             }
-            Check(waveInStart(handle)); worker=Task.Run(ReadLoop);
+            Check(waveInStart(handle),"iniciar"); worker=Task.Run(ReadLoop);
         }
         catch { Dispose(); throw; }
     }
@@ -50,12 +50,13 @@ public sealed class Microphone : IDisposable
                 {
                     var h=Marshal.PtrToStructure<Header>(p); if((h.Flags&1)==0) continue;
                     var frame=new short[Vad.FrameSamples];
-                    if(h.Recorded==Vad.FrameSamples*2) { Marshal.Copy(h.Data,frame,0,frame.Length); Frame?.Invoke(frame); }
-                    Array.Clear(frame); Check(waveInAddBuffer(handle,p,size));
+                    try { if(h.Recorded==Vad.FrameSamples*2) { Marshal.Copy(h.Data,frame,0,frame.Length); Frame?.Invoke(frame); } }
+                    finally {Array.Clear(frame);}
+                    if(!stopped)Check(waveInAddBuffer(handle,p,size),"reenfileirar");
                 }
             }
         }
-        catch { if(!stopped) Failed?.Invoke(); }
+        catch(Exception ex) { if(!stopped) Failed?.Invoke(ex is CaptureException capture?capture.Fault:new("processar-quadro",Category:ex.GetType().Name,Recoverable:ex is not (OutOfMemoryException or NativeDependencyException))); }
     }
     public void Dispose()
     {

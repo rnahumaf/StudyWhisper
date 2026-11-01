@@ -1,8 +1,10 @@
 param([string]$Compiler='C:\Program Files (x86)\Inno Setup 6\ISCC.exe')
 $ErrorActionPreference='Stop'
 $repo=Split-Path -Parent $PSScriptRoot
+$canonical=Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'GitHub\LMDocs'
+if(Test-Path -LiteralPath $canonical){& (Join-Path $PSScriptRoot 'Sync-RewritePrompts.ps1') -SourceRoot $canonical -Verify}
 $artifacts=Join-Path $repo 'artifacts'
-$publish=Join-Path $artifacts 'publish-0.1.7'
+$publish=Join-Path $artifacts 'publish-0.1.15'
 New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
 $env:DOTNET_CLI_TELEMETRY_OPTOUT='1'
 $env:DOTNET_NOLOGO='1'
@@ -29,6 +31,6 @@ foreach($package in @('markdig','microsoft.netcore.app.runtime.win-x64','microso
 if(-not(Test-Path -LiteralPath $Compiler)){throw 'Install Inno Setup 6 and pass -Compiler path'}
 & $Compiler ('/DPublishDir='+$publish) ('/DArtifactDir='+$artifacts) (Join-Path $repo 'installer\StudyWhisper.iss')
 if($LASTEXITCODE -ne 0){throw 'Installer compilation failed'}
-$setup=Join-Path $artifacts 'StudyWhisper-0.1.7-Setup-x64.exe'
+$setup=Join-Path $artifacts 'StudyWhisper-0.1.15-Setup-x64.exe'
 (Get-FileHash -Algorithm SHA256 -LiteralPath $setup).Hash | Set-Content -Encoding ascii ($setup+'.sha256')
 Write-Output $setup

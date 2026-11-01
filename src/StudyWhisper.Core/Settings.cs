@@ -3,23 +3,21 @@ namespace StudyWhisper.Core;
 public sealed record Settings
 {
     public string SttModel { get; init; } = "openai/whisper-large-v3-turbo";
-    public string JevModel { get; init; } = "typesafe/jev-1.13";
-    public string AnswerModel { get; init; } = "";
+    public string JevModel { get; init; } = "typesafe/jev-1.14";
+    public const string DefaultAnswerModel="deepseek/deepseek-v4.1-flash-1017";
+    public string AnswerModel { get; init; } = DefaultAnswerModel;
     public bool Memory { get; init; } = true;
     public bool StartWithWindows { get; init; }
-    public bool RequireZdr { get; init; }
+    public bool RequireZdr { get; init; } = true;
     public bool EnableWebSearch { get; init; } = true;
     public bool ReduceMotion { get; init; }
     public int CloseSeconds { get; init; } = 25;
-    public int CallsPerMinute { get; init; } = 12;
-    public int SessionCallLimit { get; init; } = 300;
     public double VadThreshold { get; init; } = 0.018; // Legacy settings compatibility/demo only; production uses SpeechProbability.
     public double SpeechProbability { get; init; } = 0.5;
     public int MaxAudioSeconds { get; init; } = 15;
     public void Validate()
     {
-        if (CloseSeconds is < 5 or > 300 || CallsPerMinute is < 3 or > 60 ||
-            SessionCallLimit is < 3 or > 3000 || MaxAudioSeconds is < 3 or > 30 ||
+        if (CloseSeconds is < 5 or > 300 || MaxAudioSeconds is < 3 or > 30 ||
             !double.IsFinite(VadThreshold) || VadThreshold is < 0.002 or > 0.2 ||
             !double.IsFinite(SpeechProbability) || SpeechProbability is < 0.3 or > 0.8)
             throw new ArgumentException("Configuração fora dos limites permitidos.");
@@ -47,7 +45,7 @@ public record Turn(string Question, string Answer, DateTimeOffset At)
     public IReadOnlyList<Citation> Sources { get; init; } = Array.Empty<Citation>();
     public int? SearchRequests { get; init; }
 }
-public enum Phase { Paused, Listening, Transcribing, Classifying, Thinking, Discarded, Waiting, Throttled, Error }
+public enum Phase { Paused, Listening, Transcribing, Classifying, Thinking, Discarded, Waiting, Throttled, Error, Recovering, Blocked }
 public record Status(Phase Phase, string Message);
 public interface IStudyApi
 {

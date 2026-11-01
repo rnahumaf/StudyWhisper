@@ -14,7 +14,7 @@ public static class UiSmoke
         void Check(string name,bool passed) {checks.Add(new{name,passed});if(!passed)throw new InvalidOperationException("UI smoke: "+name);}
         try
         {
-            c.Orb.Left=SystemParameters.WorkArea.Left+20;
+            await OverlaySmoke.RunAsync(c,dir,Check);
             var foreground=PassiveWindow.GetForegroundWindow();c.Orb.Show();await Yield();
             Check("Orb does not take foreground focus",PassiveWindow.GetForegroundWindow()==foreground);
             Check("Orb has WS_EX_NOACTIVATE",c.Orb.NoActivateVerified);Capture(c.Orb,Path.Combine(dir,"orb-paused.png"));
@@ -48,7 +48,7 @@ public static class UiSmoke
             var compact=new PopoverWindow(()=>cleared++,copied.Add);
             var shortTurns=new[]{new Turn("O que é mitose?","A mitose forma duas células com o mesmo número de cromossomos.",DateTimeOffset.UtcNow),new Turn("E a meiose?","A meiose forma quatro células com metade desse número.",DateTimeOffset.UtcNow)};
             compact.Open(c.Orb,shortTurns,25);await Yield();Capture(compact,Path.Combine(dir,"history-two-turns.png"));
-            Check("Two short responses fit without unnecessary scroll",compact.Scroller.ScrollableHeight<1&&compact.Height<=320);
+            Check("Short current response is framed with previous response accessible by scroll",compact.Scroller.ScrollableHeight>0&&compact.Height<200);
             var buttons=Descendants(compact).OfType<Button>().ToArray();var copyButtons=buttons.Where(b=>AutomationProperties.GetName(b)=="Copiar resposta").ToArray();
             Check("Copy icons are compact and accessible",copyButtons.Length==2&&copyButtons.All(b=>b.ActualWidth<=28&&b.ActualHeight<=28&&b.ToolTip is string));
             copyButtons[1].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check("Copy invokes the correct answer without touching real clipboard",copied.SequenceEqual(new[]{shortTurns[1].Answer}));
@@ -59,6 +59,7 @@ public static class UiSmoke
             c.Orb.SetStatus(new(Phase.Thinking,"Pensando"));await Yield();Capture(c.Orb,Path.Combine(dir,"orb-thinking.png"));
             c.Clear();Check("Clear empties session and closes popover",c.History.Count==0&&!c.Popover.IsVisible);
             await MarkdownSmoke.RunAsync(dir,c.Orb,Check);
+            await PopoverSmoke.RunAsync(dir,c.Orb,Check);
             c.Orb.Hide();await VisualSmoke.RunAsync(dir,Check);
         }
         catch(Exception ex) {checks.Add(new{name="Smoke failure",passed=false,error=ex.Message});Environment.ExitCode=1;}

@@ -1,7 +1,7 @@
 namespace StudyWhisper.Core;
 
 public record SessionSnapshot(double MonitoredSeconds,double DetectedSpeechSeconds,double SttSeconds,
-    int LocalRejected,int QueueOverflow,int BufferedDiscarded,int Boundaries,int Calls,int SttCalls,int JevCalls,int AnswerCalls,int CostReports,decimal ReportedCost,int QueueDepth,int QueuedTotal,int QueueExpired,int QueuedCancelled)
+    int LocalRejected,int QueueOverflow,int BufferedDiscarded,int Boundaries,long Calls,long SttCalls,long JevCalls,long AnswerCalls,long CostReports,decimal ReportedCost,int QueueDepth,int QueuedTotal,int QueueExpired,int QueuedCancelled)
 {
     public string CostText => CostReports==0?"Custo real: desconhecido (API não informou).":
         $"Custo informado: US$ {ReportedCost:0.000000} ({CostReports}/{Calls} chamadas; "+(CostReports==Calls?"cobertura completa).":"restante desconhecido).");
@@ -16,7 +16,8 @@ public sealed class SessionCounters
 {
     private readonly object sync=new();
     private long monitored,speech;private double sttSeconds;
-    private int localRejected,overflow,buffered,boundaries,calls,stt,jev,answer,costReports,queueDepth,queuedTotal,queueExpired,queuedCancelled;
+    private int localRejected,overflow,buffered,boundaries,queueDepth,queuedTotal,queueExpired,queuedCancelled;
+    private long calls,stt,jev,answer,costReports;
     private decimal cost;
     public void Monitor(int samples){lock(sync)monitored+=samples;}
     public void Speech(int samples){lock(sync)speech+=samples;}
@@ -33,5 +34,15 @@ public sealed class SessionCounters
             else if(path.EndsWith("decisions"))jev++;else if(path.EndsWith("chat/completions"))answer++;}
     }
     public void Cost(decimal amount){if(amount<0)return;lock(sync){cost+=amount;costReports++;}}
+    public void Restore(SessionSnapshot value)
+    {
+        lock(sync)
+        {
+            monitored=checked((long)Math.Round(value.MonitoredSeconds*Vad.Rate));speech=checked((long)Math.Round(value.DetectedSpeechSeconds*Vad.Rate));sttSeconds=value.SttSeconds;
+            localRejected=value.LocalRejected;overflow=value.QueueOverflow;buffered=value.BufferedDiscarded;boundaries=value.Boundaries;
+            calls=value.Calls;stt=value.SttCalls;jev=value.JevCalls;answer=value.AnswerCalls;costReports=value.CostReports;cost=value.ReportedCost;
+            queueDepth=0;queuedTotal=value.QueuedTotal;queueExpired=value.QueueExpired;queuedCancelled=value.QueuedCancelled;
+        }
+    }
     public SessionSnapshot Snapshot(){lock(sync)return new(monitored/(double)Vad.Rate,speech/(double)Vad.Rate,sttSeconds,localRejected,overflow,buffered,boundaries,calls,stt,jev,answer,costReports,cost,queueDepth,queuedTotal,queueExpired,queuedCancelled);}
 }

@@ -13,7 +13,7 @@ public static class Program
             controller=new Controller(demo,smoke);
             if(smoke) {await UiSmoke.RunAsync(controller,args);app.Shutdown();return;}
             controller.Orb.Show();
-            if(!demo)controller.CheckDependencies();
+            if(!demo){controller.CheckDependencies();controller.ResumeAfterUpdate();}
             if(demo)
             {
                 var preview=new Window{Title="StudyWhisper • Demonstração",Width=450,Height=430,WindowStartupLocation=WindowStartupLocation.CenterScreen};Ui.Style(preview);var p=new StackPanel{Margin=new Thickness(20)};preview.Content=p;

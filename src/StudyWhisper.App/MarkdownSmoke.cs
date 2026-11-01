@@ -47,7 +47,7 @@ public static class MarkdownSmoke
         check("Short response shrinks the popover without unnecessary scrolling",popover.Height<170&&popover.Scroller.ScrollableHeight<1);UiSmoke.Capture(popover,Path.Combine(dir,"answer-short.png"));
         var top=orb.Top;orb.Top=SystemParameters.WorkArea.Bottom-90;popover.Open(orb,new[]{turn},25);await Yield();
         check("Popover remains inside available work area near bottom",popover.Top>=SystemParameters.WorkArea.Top&&popover.Top+popover.Height<=SystemParameters.WorkArea.Bottom);orb.Top=top;
-        orb.SetStatus(new(Phase.Throttled,"Limite local por minuto. Aguarde 37 s."));await Yield();UiSmoke.Capture(orb,Path.Combine(dir,"orb-throttled.png"));
+        orb.SetStatus(new(Phase.Throttled,"OpenRouter HTTP 429. Aguarde 37 s."));await Yield();UiSmoke.Capture(orb,Path.Combine(dir,"orb-throttled.png"));
         check("Throttle uses wait glyph distinct from processing error",orb.Scene==LensScene.Throttled&&AutomationProperties.GetHelpText(orb).Contains("37 s"));
         orb.EndThrottle();check("Cooldown ending clears wait glyph without network or replay",orb.Scene!=LensScene.Throttled);
         orb.SetStatus(new(Phase.Paused,"Pausado"));popover.Close();

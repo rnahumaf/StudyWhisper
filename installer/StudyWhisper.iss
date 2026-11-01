@@ -1,5 +1,5 @@
 #ifndef PublishDir
-  #define PublishDir "..\artifacts\publish-0.1.7"
+  #define PublishDir "..\artifacts\publish-0.1.15"
 #endif
 #ifndef ArtifactDir
   #define ArtifactDir "..\artifacts"
@@ -7,7 +7,7 @@
 [Setup]
 AppId={{DA58DA7B-2A51-4F8A-90FA-70637B036A4B}
 AppName=StudyWhisper
-AppVersion=0.1.7
+AppVersion=0.1.15
 AppPublisher=StudyWhisper contributors
 DefaultDirName={localappdata}\Programs\StudyWhisper
 DefaultGroupName=StudyWhisper
@@ -15,7 +15,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#ArtifactDir}
-OutputBaseFilename=StudyWhisper-0.1.7-Setup-x64
+OutputBaseFilename=StudyWhisper-0.1.15-Setup-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -33,6 +33,7 @@ Source: "..\README.md"; DestDir: "{app}"
 Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: recursesubdirs createallsubdirs
 [Icons]
 Name: "{userprograms}\StudyWhisper"; Filename: "{app}\StudyWhisper.exe"
+Name: "{userdesktop}\StudyWhisper"; Filename: "{app}\StudyWhisper.exe"; WorkingDir: "{app}"
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "StudyWhisper"; Flags: uninsdeletevalue
 [Run]

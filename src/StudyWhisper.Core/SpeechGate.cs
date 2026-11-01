@@ -15,7 +15,7 @@ public sealed class SpeechGate : IDisposable
     private readonly List<short> segment=new();
     private int fill,onset,quiet,noiseQuiet,noiseFrames;
     private bool active,noise,speechInEpisode;
-    private long processed,segmentStart;
+    private long processed,segmentStart,exportedUntil;
     public const int PreRollBlocks=10, EndSilenceBlocks=25, TailBlocks=8, OverlapBlocks=8;
     public double Level {get;private set;}
     public float Probability {get;private set;}
@@ -37,7 +37,9 @@ public sealed class SpeechGate : IDisposable
         {
             var n=Math.Min(block.Length-fill,pcm.Length);pcm[..n].CopyTo(block.AsSpan(fill));fill+=n;pcm=pcm[n..];
             if(fill<block.Length)continue;
-            processed+=block.Length;Probability=model.Predict(block);output=Process(block,Probability)??output;Array.Clear(block);fill=0;
+            processed+=block.Length;
+            try {Probability=model.Predict(block);output=Process(block,Probability)??output;}
+            finally {Array.Clear(block);fill=0;}
         }
         return output;
     }
@@ -67,14 +69,21 @@ public sealed class SpeechGate : IDisposable
         quiet=p>=keep?0:quiet+1;
         if(quiet>=EndSilenceBlocks)
         {
-            var count=segment.Count-(quiet-TailBlocks)*Silero.Samples;
-            var wav=Wav.Encode(CollectionsMarshal.AsSpan(segment)[..count]);ClearSegment();active=false;onset=quiet=0;
+            // Silence counted before a forced boundary may exceed the retained overlap.
+            // Its earlier samples were already exported; do not slice below zero or send them again.
+            var count=Math.Clamp(segment.Count-(quiet-TailBlocks)*Silero.Samples,0,segment.Count);
+            var end=segmentStart+count;
+            var wav=count>0&&end>exportedUntil?Wav.Encode(CollectionsMarshal.AsSpan(segment)[..count]):null;
+            ClearSegment();active=false;onset=quiet=0;
+            if(wav is null)return null;
+            exportedUntil=end;
             Flow?.Invoke(FlowKind.LocalApproved);
             return new(wav,false,segmentStart,segmentStart+count);
         }
         if(segment.Count<maximum)return null;
         var result=Wav.Encode(CollectionsMarshal.AsSpan(segment));
         var output=new SpeechSegment(result,true,segmentStart,segmentStart+segment.Count);
+        exportedUntil=output.EndSample;
         // Bounded cut with overlap: preserve boundary phonemes, retain recurrent model state.
         var overlap=segment.TakeLast(OverlapBlocks*Silero.Samples).ToArray();segmentStart+=segment.Count-overlap.Length;ClearSegment();segment.AddRange(overlap);Array.Clear(overlap);
         counters.Boundary();Flow?.Invoke(FlowKind.LocalApproved);return output;
@@ -86,7 +95,7 @@ public sealed class SpeechGate : IDisposable
         if(active||noise)counters.DiscardBuffered();
         ClearSegment();while(preRoll.Count>0)Array.Clear(preRoll.Dequeue());Array.Clear(block);model.Reset();
         fill=onset=quiet=noiseQuiet=noiseFrames=0;active=noise=speechInEpisode=false;Level=Probability=0;
-        processed=segmentStart=0;
+        processed=segmentStart=exportedUntil=0;
     }
     public void Dispose(){Reset();model.Dispose();}
 }

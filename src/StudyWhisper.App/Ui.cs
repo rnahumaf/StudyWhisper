@@ -61,8 +61,15 @@ public sealed class PopoverWindow : PassiveWindow
     private readonly DockPanel layout;
     private readonly Action<string> copy;
     private readonly Action<Uri> openLink;
+    private readonly Border tailSpace=new(){Height=0};
+    private Turn? latestShown;
+    private IReadOnlyList<Turn> renderedHistory=Array.Empty<Turn>();
+    private DispatcherOperation? pendingScroll;
+    private int scrollGeneration;
     public const double BodyLimit=252;
     private int seconds=25;
+    private OutsideClickDismissal? outside;
+    private OrbWindow? anchor;
     public PopoverWindow(Action clear,Action<string>? copy=null,Action<Uri>? openLink=null)
     {
         this.openLink=openLink??MarkdownView.Open;
@@ -79,25 +86,38 @@ public sealed class PopoverWindow : PassiveWindow
         Content=new Border{BorderBrush=Ui.Line,BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(10),Background=Brushes.White,Child=layout};
         timer=new DispatcherTimer{Interval=TimeSpan.FromMilliseconds(200)};
         timer.Tick+=(_,_)=>{if(IsVisible&&clock.Tick(TimeSpan.FromMilliseconds(200),IsMouseOver||IsMouseCaptureWithin)) Hide();};
-        IsVisibleChanged+=(_,_)=>{if(IsVisible)timer.Start();else timer.Stop();};
-        PreviewMouseWheel+=(_,_)=>clock.Reset(seconds);
-        PreviewMouseDown+=(_,_)=>clock.Reset(seconds);
-        Closed+=(_,_)=>timer.Stop();
+        IsVisibleChanged+=(_,_)=>
+        {
+            outside?.Dispose();outside=null;
+            if(IsVisible)
+            {
+                timer.Start();outside=new(()=>new[]{new WindowInteropHelper(this).Handle,anchor is null?IntPtr.Zero:new WindowInteropHelper(anchor).Handle},Hide);
+            }
+            else {timer.Stop();CancelPendingScroll();}
+        };
+        PreviewMouseWheel+=(_,_)=>{CancelPendingScroll();clock.Reset(seconds);};
+        PreviewMouseDown+=(_,_)=>{CancelPendingScroll();clock.Reset(seconds);};
+        Closed+=(_,_)=>{outside?.Dispose();timer.Stop();CancelPendingScroll();};
     }
-    public void Open(OrbWindow orb,IReadOnlyList<Turn> history,int closeSeconds,bool forceBottom=false)
+    public void Open(OrbWindow orb,IReadOnlyList<Turn> history,int closeSeconds,bool newReply=false)
     {
-        seconds=closeSeconds;clock.Reset(seconds);
-        var keep=IsVisible&&IsMouseOver;var offset=scroll.VerticalOffset;
+        anchor=orb;seconds=closeSeconds;clock.Reset(seconds);
+        if(!newReply&&IsVisible&&renderedHistory.SequenceEqual(history))return;
+        renderedHistory=history.ToArray();var latest=history.LastOrDefault();
+        var showLatest=newReply||!IsVisible||!Equals(latestShown,latest);
+        var offset=scroll.VerticalOffset;CancelPendingScroll();latestShown=latest;tailSpace.Height=0;
+        FrameworkElement? latestEntry=null,latestAnswer=null;
         turns.Children.Clear();
         if(history.Count==0) turns.Children.Add(Ui.Text("As respostas aparecerão aqui. O monitoramento começa desativado; use o menu da bandeja para configurar e ativar.",14,Ui.Muted));
         for(var index=0;index<history.Count;index++)
         {
-            var turn=history[index];
+            var turn=history[index];var entry=new StackPanel();turns.Children.Add(entry);
             var metadata=new DockPanel{LastChildFill=true};
             var copyButton=Ui.IconButton("\uE8C8","Copiar resposta",()=>copy(MarkdownContent.PlainText(turn.Answer)));DockPanel.SetDock(copyButton,Dock.Right);metadata.Children.Add(copyButton);
-            var time=Ui.Text(turn.At.ToLocalTime().ToString("HH:mm"),11,Ui.Muted);time.Margin=new Thickness(0);time.VerticalAlignment=VerticalAlignment.Center;metadata.Children.Add(time);turns.Children.Add(metadata);
-            var question=Ui.Text(turn.Question,12.5,Ui.Muted);question.Margin=new Thickness(0,0,0,3);turns.Children.Add(question);
-            turns.Children.Add(MarkdownView.Render(turn.Answer,openLink));
+            var time=Ui.Text(turn.At.ToLocalTime().ToString("HH:mm"),11,Ui.Muted);time.Margin=new Thickness(0);time.VerticalAlignment=VerticalAlignment.Center;metadata.Children.Add(time);entry.Children.Add(metadata);
+            var question=Ui.Text(turn.Question,12.5,Ui.Muted);question.Margin=new Thickness(0,0,0,3);entry.Children.Add(question);
+            var answer=MarkdownView.Render(turn.Answer,openLink);entry.Children.Add(answer);
+            if(index==history.Count-1){latestEntry=entry;latestAnswer=answer;}
             if(turn.Sources.Count>0)
             {
                 var sources=Ui.Text("Fontes: ",11,Ui.Muted);sources.Margin=new Thickness(0,2,0,4);
@@ -107,21 +127,49 @@ public sealed class PopoverWindow : PassiveWindow
                     var link=MarkdownView.Link(uri.Host,source.Url,openLink);link.ToolTip=source.Title+"\n"+uri.AbsoluteUri;
                     sources.Inlines.Add(link);sources.Inlines.Add(new System.Windows.Documents.Run("  "));
                 }
-                turns.Children.Add(sources);
+                entry.Children.Add(sources);
             }
             if(index<history.Count-1)turns.Children.Add(new Border{Height=1,Background=Ui.Line,Margin=new Thickness(0,7,0,7)});
         }
+        turns.Children.Add(tailSpace);
         var work=SystemParameters.WorkArea;
         Width=Math.Max(160,Math.Min(380,work.Width-16));
         // Ten answer lines (20 DIP each), plus question and small metadata. Longer/history content scrolls.
         var top=Math.Min(orb.Top+orb.Height+8,work.Bottom-96);
         var available=Math.Max(80,work.Bottom-top-8);
         turns.Measure(new Size(Math.Max(1,Width-28),double.PositiveInfinity));
-        var body=Math.Min(BodyLimit,turns.DesiredSize.Height);
+        var body=Math.Min(BodyLimit,latestEntry?.DesiredSize.Height??turns.DesiredSize.Height);
         Height=Math.Clamp(body+57,80,Math.Min(BodyLimit+57,available));
         Left=Math.Clamp(orb.Left+orb.Width-Width,work.Left+8,Math.Max(work.Left+8,work.Right-Width-8));
         Top=Math.Clamp(top,work.Top+8,Math.Max(work.Top+8,work.Bottom-Height-8));
-        Show();scroll.UpdateLayout(); if(keep)scroll.ScrollToVerticalOffset(offset);else if(forceBottom)scroll.ScrollToBottom();
+        Show();scroll.UpdateLayout();
+        void Position()=>PositionView(latestEntry,latestAnswer,showLatest,offset);
+        Position();
+        // ScrollViewer queues scroll commands; repeat once after pending Markdown/layout work settles.
+        // A newer reply, hide, or user interaction invalidates this callback, never a periodic re-anchor.
+        var generation=scrollGeneration;
+        pendingScroll=Dispatcher.BeginInvoke(DispatcherPriority.Loaded,new Action(()=>
+        {
+            pendingScroll=null;if(IsVisible&&generation==scrollGeneration)Position();
+        }));
+    }
+    private void CancelPendingScroll()
+    {
+        scrollGeneration++;pendingScroll?.Abort();pendingScroll=null;
+    }
+    private void PositionView(FrameworkElement? latestEntry,FrameworkElement? latestAnswer,bool showLatest,double previousOffset)
+    {
+        scroll.UpdateLayout();
+        if(latestEntry is null||latestAnswer is null){scroll.ScrollToTop();scroll.UpdateLayout();return;}
+        var entryTop=latestEntry.TranslatePoint(new Point(),turns).Y;
+        var answerTop=latestAnswer.TranslatePoint(new Point(),turns).Y;
+        // Keep short questions beside the new answer; a very long question must not hide its first paragraph.
+        var entryFits=latestEntry.DesiredSize.Height<=scroll.ViewportHeight+1;
+        var start=entryFits||answerTop-entryTop<=Math.Min(64,scroll.ViewportHeight/3)?entryTop:answerTop;
+        var remaining=turns.DesiredSize.Height-tailSpace.Height-start;
+        tailSpace.Height=Math.Max(0,scroll.ViewportHeight-remaining);
+        scroll.UpdateLayout();
+        scroll.ScrollToVerticalOffset(showLatest?start:previousOffset);scroll.UpdateLayout();
     }
     public ScrollViewer Scroller=>scroll;
 }

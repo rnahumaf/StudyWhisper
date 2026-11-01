@@ -9,58 +9,51 @@ public sealed class ThrottleException(string message,TimeSpan? retryAfter=null) 
 {
     public TimeSpan? RetryAfter {get;}=retryAfter;
 }
-public sealed class CallBudget
+/// <summary>Accounting plus provider-imposed cooldown only; no local count or spending ceiling.</summary>
+public sealed class CallTracker
 {
-    private readonly Queue<DateTimeOffset> recent=new();
+    internal SemaphoreSlim InferenceSlot {get;}=new(1,1);
+    private readonly object sync=new();
     private readonly Func<DateTimeOffset> clock;
-    private int perMinute,sessionMax;
     private DateTimeOffset blockedUntil;
     private string cooldownReason="OpenRouter HTTP 429";
-    public int Used { get; private set; }
-    public CallBudget(int perMinute,int sessionMax,Func<DateTimeOffset>? clock=null) { this.perMinute=perMinute; this.sessionMax=sessionMax; this.clock=clock??(()=>DateTimeOffset.UtcNow); }
+    public long Used {get;private set;}
+    public CallTracker(Func<DateTimeOffset>? clock=null){this.clock=clock??(()=>DateTimeOffset.UtcNow);}
     public string Diagnostic
     {
-        get{lock(recent){try{EnsureAvailable(3);return $"Orçamento local: {Used}/{sessionMax} tentativas nesta execução; pronto para nova pergunta. Limite de {perMinute}/minuto inclui STT e JEV de falas ignoradas.";}catch(ThrottleException ex){return ex.Message;}}}
+        get{lock(sync){var text=$"Chamadas de inferência acumuladas: {Used}. Sem teto interno de chamadas ou gasto.";try{EnsureAvailable();return text;}catch(ThrottleException ex){return text+"\n"+ex.Message;}}}
     }
-    public void Configure(int minute,int session) { lock(recent) { perMinute=minute;sessionMax=session; } }
-    public void EnsureAvailable(int required=1)
+    public void RestoreUsedForUpdate(long used){if(used<0)throw new ArgumentOutOfRangeException(nameof(used));lock(sync)Used=Math.Max(Used,used);}
+    public void EnsureAvailable()
     {
-        lock(recent)
-        {
-            var now=clock();while(recent.Count>0&&now-recent.Peek()>=TimeSpan.FromMinutes(1))recent.Dequeue();
-            if(Used+required>sessionMax)throw new ThrottleException("Limite local da sessão atingido. Envio pausado; saia do app para uma nova sessão ou ajuste o limite em Configurações.");
-            if(now<blockedUntil)throw Delay(cooldownReason,blockedUntil-now);
-            if(recent.Count+required>perMinute)
-            {
-                var offset=recent.Count+required-perMinute-1;
-                throw Delay("Limite local por minuto",recent.ElementAt(offset)+TimeSpan.FromMinutes(1)-now);
-            }
-        }
+        lock(sync){var now=clock();if(now<blockedUntil){var wait=blockedUntil-now;throw new ThrottleException($"{cooldownReason}. Aguarde {Math.Max(1,(int)Math.Ceiling(wait.TotalSeconds))} s. Sem repetição automática.",wait);}}
     }
-    private static ThrottleException Delay(string reason,TimeSpan wait)=>new($"{reason}. Aguarde {Math.Max(1,(int)Math.Ceiling(wait.TotalSeconds))} s e faça a pergunta novamente. Sem repetição automática.",wait);
-    public void Take()
-    {
-        lock(recent){EnsureAvailable();Used++;recent.Enqueue(clock());}
-    }
-    public void Cooldown(TimeSpan duration,string reason="OpenRouter HTTP 429") { lock(recent) { blockedUntil=clock()+TimeSpan.FromSeconds(Math.Clamp(duration.TotalSeconds,1,3600));cooldownReason=reason; } }
+    public void Take(){lock(sync){EnsureAvailable();Used++;}}
+    public void Cooldown(TimeSpan duration,string reason="OpenRouter HTTP 429"){lock(sync){blockedUntil=clock()+TimeSpan.FromSeconds(Math.Clamp(duration.TotalSeconds,1,3600));cooldownReason=reason;}}
 }
 
-public sealed class OpenRouter : IStudyApi
+public sealed class OpenRouter : IStudyApi,IRecordingApi
 {
     private readonly HttpClient http;
     private readonly Func<string> key;
     private readonly Settings settings;
     private readonly TimeSpan requestTimeout;
     private readonly SessionCounters? counters;
-    public CallBudget Budget { get; }
+    public CallTracker Tracker { get; }
     private static readonly Uri Root=new("https://openrouter.ai/");
-    public OpenRouter(HttpClient http,Func<string> key,Settings settings,CallBudget? budget=null,TimeSpan? requestTimeout=null,SessionCounters? counters=null)
-    { this.http=http; this.key=key; this.settings=settings;this.counters=counters; Budget=budget??new(settings.CallsPerMinute,settings.SessionCallLimit);this.requestTimeout=requestTimeout??TimeSpan.FromSeconds(45);if(this.requestTimeout<=TimeSpan.Zero||this.requestTimeout>TimeSpan.FromSeconds(45))throw new ArgumentOutOfRangeException(nameof(requestTimeout)); }
-    public void EnsureCanStart()=>Budget.EnsureAvailable(3);
+    public OpenRouter(HttpClient http,Func<string> key,Settings settings,CallTracker? tracker=null,TimeSpan? requestTimeout=null,SessionCounters? counters=null)
+    { this.http=http; this.key=key; this.settings=settings;this.counters=counters; Tracker=tracker??new();this.requestTimeout=requestTimeout??TimeSpan.FromSeconds(45);if(this.requestTimeout<=TimeSpan.Zero||this.requestTimeout>TimeSpan.FromSeconds(45))throw new ArgumentOutOfRangeException(nameof(requestTimeout)); }
+    public void EnsureCanStart()=>Tracker.EnsureAvailable();
     private Dictionary<string,object> Policy()=>settings.RequireZdr?new() { ["zdr"]=true,["data_collection"]="deny" }:new();
     private async Task<JsonDocument> Request(string path,object? body,bool authenticated,bool inference,CancellationToken token,string? explicitKey=null,double audioSeconds=0)
     {
-        token.ThrowIfCancellationRequested(); if(inference) Budget.Take();
+        if(inference)await Tracker.InferenceSlot.WaitAsync(token).ConfigureAwait(false);
+        try{return await RequestCore(path,body,authenticated,inference,token,explicitKey,audioSeconds).ConfigureAwait(false);}
+        finally{if(inference)Tracker.InferenceSlot.Release();}
+    }
+    private async Task<JsonDocument> RequestCore(string path,object? body,bool authenticated,bool inference,CancellationToken token,string? explicitKey=null,double audioSeconds=0)
+    {
+        token.ThrowIfCancellationRequested(); if(inference) Tracker.Take();
         using var timeout=CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(requestTimeout);
         using var request=new HttpRequestMessage(body is null?HttpMethod.Get:HttpMethod.Post,new Uri(Root,path));
         if(authenticated)
@@ -82,7 +75,7 @@ public sealed class OpenRouter : IStudyApi
                 var retry=response.Headers.RetryAfter;
                                 var duration=retry?.Delta??(retry?.Date-DateTimeOffset.UtcNow)??TimeSpan.FromSeconds(60);
                 duration=TimeSpan.FromSeconds(Math.Clamp(duration.TotalSeconds,1,3600));
-                Budget.Cooldown(duration,"OpenRouter HTTP 429 em "+path.Split('/').Last());
+                Tracker.Cooldown(duration,"OpenRouter HTTP 429 em "+path.Split('/').Last());
                 throw new ThrottleException($"OpenRouter HTTP 429 em {path.Split('/').Last()}. Aguarde {(int)Math.Ceiling(duration.TotalSeconds)} s e faça a pergunta novamente. Sem repetição automática.",duration);
             }
             if(!response.IsSuccessStatusCode)
@@ -138,6 +131,32 @@ public sealed class OpenRouter : IStudyApi
         if(!result.RootElement.TryGetProperty("text",out var t)||t.ValueKind!=JsonValueKind.String) throw new ApiException("STT retornou formato inesperado.");
         return t.GetString()!;
     }
+    public async Task<RecordedTranscript> TranscribeRecordingAsync(byte[] wav,CancellationToken token)
+    {
+        if(wav.Length>Vad.Rate*2*30+44||wav.Length<44)throw new InvalidDataException("Áudio fora dos limites do buffer.");
+        var timed=settings.SttModel is "openai/whisper-large-v3-turbo" or "openai/whisper-large-v3" or "openai/whisper-1";
+        var body=new Dictionary<string,object>{["model"]=settings.SttModel,["input_audio"]=new{data=Convert.ToBase64String(wav),format="wav"},["response_format"]=timed?"verbose_json":"json",["language"]="pt",["temperature"]=0,["provider"]=Policy()};
+        if(timed)body["timestamp_granularities"]=new[]{"word","segment"};
+        using var result=await Request("api/v1/audio/transcriptions",body,true,true,token,audioSeconds:(wav.Length-44)/(double)(Vad.Rate*2));
+        return ParseRecordingTranscript(result.RootElement,(wav.Length-44)/(double)(Vad.Rate*2));
+    }
+    public static RecordedTranscript ParseRecordingTranscript(JsonElement root,double seconds)
+    {
+        if(!root.TryGetProperty("text",out var text)||text.ValueKind!=JsonValueKind.String)throw new ApiException("STT retornou formato inesperado.");
+        double? Score(JsonElement item)=>item.TryGetProperty("confidence",out var c)&&c.ValueKind==JsonValueKind.Number&&c.TryGetDouble(out var value)&&double.IsFinite(value)&&value is >=0 and <=1?value:null;
+        TranscriptWord[]? words=null;
+        if(root.TryGetProperty("words",out var list)&&list.ValueKind==JsonValueKind.Array)
+        {
+            var parsed=new List<TranscriptWord>();var valid=true;double last=-1;
+            foreach(var item in list.EnumerateArray())
+            {
+                if(item.ValueKind!=JsonValueKind.Object||!item.TryGetProperty("word",out var word)||word.ValueKind!=JsonValueKind.String||!item.TryGetProperty("start",out var from)||from.ValueKind!=JsonValueKind.Number||!from.TryGetDouble(out var a)||!item.TryGetProperty("end",out var to)||to.ValueKind!=JsonValueKind.Number||!to.TryGetDouble(out var b)||!double.IsFinite(a)||!double.IsFinite(b)||a<0||a<last||b<a||b>seconds+.25){valid=false;break;}
+                parsed.Add(new(word.GetString()!,a,b,Score(item)));last=a;
+            }
+            if(valid&&parsed.Count>0)words=parsed.ToArray();
+        }
+        return new(text.GetString()!,words,Score(root));
+    }
     public async Task<Judgment> ClassifyAsync(string transcript,string context,CancellationToken token)
     {
         using var result=await Request("api/alpha/decisions",new
@@ -147,6 +166,20 @@ public sealed class OpenRouter : IStudyApi
                 criteria=new { responder="Pergunta clara de estudo com informação suficiente para responder, mesmo sem '?' ou curta/contextual com referência disponível.",aguardar="Fala que já parece uma pergunta de estudo mas está incompleta ou precisa de continuação/contexto para fazer sentido.",ignorar="Enunciado, comentário, afirmação, pedido em forma de comando sem pergunta, interjeição, ruído transcrito ou conversa sem pergunta de estudo." } } }
         },true,true,token);
         return ParseJudgment(result.RootElement);
+    }
+    public async Task<string> RewriteAsync(string text,CancellationToken token)
+    {
+        if(string.IsNullOrWhiteSpace(text)||text.Length>12000)throw new ArgumentException("Informe até 12.000 caracteres para revisar.");
+        var body=new{model=settings.AnswerModel,messages=new[]{new{role="system",content=RewritePrompt.Instructions},new{role="user",content=text}},stream=false,max_tokens=6000,provider=Policy(),reasoning=new{effort="low"}};
+        using var result=await Request("api/v1/chat/completions",body,true,true,token);
+        try
+        {
+            var choice=result.RootElement.GetProperty("choices")[0];
+            if(choice.TryGetProperty("finish_reason",out var reason)&&reason.GetString()=="length")throw new ApiException("A revisão ficou incompleta. O texto original foi preservado; reduza o trecho antes de tentar novamente.");
+            var answer=choice.GetProperty("message").GetProperty("content").GetString();
+            if(string.IsNullOrWhiteSpace(answer))throw new ApiException("A revisão retornou vazia. O texto original foi preservado.");return answer;
+        }
+        catch(Exception ex) when(ex is KeyNotFoundException or InvalidOperationException or IndexOutOfRangeException){throw new ApiException("A revisão retornou formato inesperado; o texto original foi preservado.");}
     }
     public static Judgment ParseJudgment(JsonElement root)
     {

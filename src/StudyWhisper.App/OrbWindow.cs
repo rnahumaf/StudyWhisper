@@ -15,11 +15,20 @@ public sealed class OrbWindow : PassiveWindow
     public bool EffectiveReduceMotion=>reduceMotion||!SystemParameters.ClientAreaAnimation;
     public bool AnimationRunning=>pulse.IsEnabled;
     public long RenderCount=>drawing.RenderCount;
+    private CaptureHealth? captureHealth;
+    private long processedFrames,processingFaults;
+    public bool RemoteLimited=>status.Phase==Phase.Throttled;
+    public bool CaptureStreaming=>captureHealth?.Streaming==true;
+    public string CaptureSummary=>captureHealth is null?"":!captureHealth.Requested?"Áudio local: pausado":$"Áudio local: {(captureHealth.Streaming?"ouvindo":"sem quadros recentes")} · quadros recebidos {captureHealth.Frames}, processados {processedFrames} · falhas locais {processingFaults} · aberturas {captureHealth.SourceOpens} · último quadro há {captureHealth.LastFrameAgeMs:0} ms";
+    public void SetCaptureHealth(CaptureHealth health,long processed,long faults){var before=Scene;captureHealth=health;processedFrames=processed;processingFaults=faults;ChangedScene(before);UpdateHelp();drawing.InvalidateVisual();}
     public LensScene Scene
     {
         get
         {
-            if(status.Phase==Phase.Throttled)return LensScene.Throttled;
+            if(status.Phase==Phase.Recovering)return LensScene.Throttled;
+            if(status.Phase==Phase.Throttled)return CaptureStreaming?LensScene.Listening:LensScene.Throttled;
+            if(status.Phase==Phase.Blocked)return LensScene.Error;
+            if(captureHealth is {Requested:true,Streaming:false})return LensScene.Throttled;
             if(!Flow.Enabled)return status.Phase==Phase.Error?LensScene.Error:LensScene.Paused;
             if(!Flow.Expanded)return LensScene.Listening;
             if(Flow.Cloud==StepMark.Error||Flow.Jev==StepMark.Error||Flow.Whisper==StepMark.Error)return LensScene.Error;
@@ -36,31 +45,53 @@ public sealed class OrbWindow : PassiveWindow
         }
     }
     private readonly FlowDrawing drawing;
+    private readonly MonitorAnchor anchor;
+    private readonly OrbClick click=new();
+    private OutsideClickDismissal? menuDismissal;
     private readonly DispatcherTimer pulse=new(){Interval=TimeSpan.FromMilliseconds(1000.0/15)};
     private readonly DispatcherTimer settle=new(){Interval=TimeSpan.FromSeconds(3)};
     private bool reduceMotion;
     private DateTimeOffset bandAt;
     private long transitionAt;
     private Status status=new(Phase.Paused,"Monitoramento pausado");
+    private string recordingLabel="";
+    public string RecordingLabel=>recordingLabel;
+    public void SetMonitoringState(bool enabled,bool available)
+    {
+        AutomationProperties.SetName(drawing,!available?"StudyWhisper: gravacao em andamento":enabled?"StudyWhisper: pausar monitoramento":"StudyWhisper: iniciar monitoramento");
+    }
+    public void SetRecordingState(string label){recordingLabel=label;UpdateHelp();drawing.InvalidateVisual();}
     internal double Motion=>EffectiveReduceMotion?0:Environment.TickCount64/1000.0;
     internal double SceneOpacity=>EffectiveReduceMotion||!Flow.Enabled?1:.4+.6*Math.Clamp(Stopwatch.GetElapsedTime(transitionAt).TotalMilliseconds/150,0,1);
     private bool Transitioning=>Stopwatch.GetElapsedTime(transitionAt).TotalMilliseconds<150;
-    public OrbWindow(Action history,Action settings,Action toggle,Action clear,Action exit)
+    public OrbWindow(Action history,Action settings,Action toggle,Action clear,Action exit,Action? record=null,Action? recordings=null,Func<string>? recordLabel=null,Action? rewrite=null)
     {
         Title="StudyWhisper · Monitoramento";Width=Height=72;AllowsTransparency=true;Background=Brushes.Transparent;
         drawing=new FlowDrawing(this){Cursor=Cursors.Hand};Content=drawing;
-        AutomationProperties.SetName(drawing,"StudyWhisper: abrir histórico da sessão");
-        drawing.MouseLeftButtonUp+=(_,_)=>history();
-        var menu=new ContextMenu();
+        AutomationProperties.SetName(drawing,"StudyWhisper: iniciar / pausar monitoramento");
+        anchor=new MonitorAnchor(this);
+        drawing.MouseLeftButtonDown+=(_,e)=>{click.Begin(e.GetPosition(drawing));drawing.CaptureMouse();e.Handled=true;};
+        drawing.MouseMove+=(_,e)=>click.Move(e.GetPosition(drawing));
+        drawing.LostMouseCapture+=(_,_)=>click.Cancel();
+        drawing.MouseLeftButtonUp+=(_,e)=>{var p=e.GetPosition(drawing);var invoke=click.End(p,p.X>=0&&p.Y>=0&&p.X<=drawing.ActualWidth&&p.Y<=drawing.ActualHeight);drawing.ReleaseMouseCapture();e.Handled=true;if(invoke)toggle();};
+        var menu=new ContextMenu{StaysOpen=false};
+        if(rewrite is not null){var item=new MenuItem{Header="Rewrite"};item.Click+=(_,_)=>rewrite();menu.Items.Add(item);}
+        if(record is not null)
+        {
+            var recordingItem=new MenuItem{Header="Gravar"};recordingItem.Click+=(_,_)=>record();menu.Items.Add(recordingItem);
+            menu.Opened+=(_,_)=>{var label=recordLabel?.Invoke()??"Gravar";recordingItem.Header=label;recordingItem.IsEnabled=label is "Gravar" or "Parar";};
+            var historyItem=new MenuItem{Header="Gravações"};historyItem.Click+=(_,_)=>recordings?.Invoke();menu.Items.Add(historyItem);menu.Items.Add(new Separator());
+        }
+        menu.Opened+=(_,_)=>{menuDismissal?.Dispose();menuDismissal=new(()=>new[]{(PresentationSource.FromVisual(menu) as System.Windows.Interop.HwndSource)?.Handle??IntPtr.Zero},()=>menu.IsOpen=false);};
+        menu.Closed+=(_,_)=>{menuDismissal?.Dispose();menuDismissal=null;};
         foreach(var (label,action) in new[]{("Histórico da sessão",history),("Configurações",settings),("Ativar / desativar monitoramento",toggle),("Limpar memória e histórico",clear),("Sair",exit)})
         {var item=new MenuItem{Header=label};item.Click+=(_,_)=>action();menu.Items.Add(item);}drawing.ContextMenu=menu;
         pulse.Tick+=(_,_)=>{if(DateTimeOffset.UtcNow-bandAt>TimeSpan.FromMilliseconds(350))Bands=AudioBands.Silent;drawing.InvalidateVisual();RefreshTimer();};
         settle.Tick+=(_,_)=>{settle.Stop();if(!Flow.RemoteBusy&&Flow.Filter!=StepMark.Active){var before=Scene;Flow.Collapse();ChangedScene(before);drawing.InvalidateVisual();RefreshTimer();}};
-        SystemParameters.StaticPropertyChanged+=SystemChanged;Anchor();UpdateHelp();
+        SystemParameters.StaticPropertyChanged+=SystemChanged;UpdateHelp();
     }
     private void SystemChanged(object? s,System.ComponentModel.PropertyChangedEventArgs e)
-    {if(e.PropertyName==nameof(SystemParameters.WorkArea))Anchor();if(e.PropertyName==nameof(SystemParameters.ClientAreaAnimation)){drawing.InvalidateVisual();RefreshTimer();}}
-    private void Anchor(){var area=SystemParameters.WorkArea;Left=area.Right-Width-20;Top=area.Top+20;}
+    {if(e.PropertyName==nameof(SystemParameters.WorkArea))anchor.Request();if(e.PropertyName==nameof(SystemParameters.ClientAreaAnimation)){drawing.InvalidateVisual();RefreshTimer();}}
     private void ChangedScene(LensScene previous){if(previous!=Scene)transitionAt=Stopwatch.GetTimestamp();}
     private void RefreshTimer(){if(!EffectiveReduceMotion&&(Flow.RemoteBusy||Flow.Expanded&&Flow.Filter==StepMark.Active||Bands.Intensity>0||Flow.Enabled&&Transitioning))pulse.Start();else pulse.Stop();}
     public void Configure(bool reduced){reduceMotion=reduced;RefreshTimer();drawing.InvalidateVisual();}
@@ -81,13 +112,21 @@ public sealed class OrbWindow : PassiveWindow
         if(!Flow.RemoteBusy&&Flow.Filter!=StepMark.Active)Flow.Collapse();
         SetStatus(new(Phase.Listening,"Monitoramento ativado"));
     }
+    public void EndRecovery()
+    {
+        if(status.Phase!=Phase.Recovering)return;
+        if(!Flow.RemoteBusy)Flow.Collapse();
+        SetStatus(new(Phase.Listening,"Entrada de áudio reconectada"));
+    }
     private void UpdateHelp()
     {
-        var message=(status.Phase is Phase.Error or Phase.Throttled?status.Message:Flow.Reason)+(Flow.Queued>0?$" · Fila {Flow.Queued}/2":"")+(Flow.Incoming.Length>0?" · "+Flow.Incoming:"");
-        drawing.ToolTip=message+"\nGraves (ciano): 80–350 Hz · médios (violeta): 350–2000 Hz · agudos (âmbar): 2–8 kHz.\nCores representam energia sonora, não intenção. Glifos STT são decorativos.\nClique: histórico · botão direito: monitoramento e configurações.";
+        var message=(status.Phase is Phase.Error or Phase.Throttled or Phase.Recovering or Phase.Blocked?status.Message:Flow.Reason)+(Flow.Queued>0?$" · Fila {Flow.Queued}/2":"")+(Flow.Incoming.Length>0?" · "+Flow.Incoming:"");
+        if(RemoteLimited&&CaptureStreaming)message="Ouvindo normalmente. O provedor limitou temporariamente os envios. "+message;
+        if(CaptureSummary.Length>0)message+="\n"+CaptureSummary;
+        drawing.ToolTip=(recordingLabel.Length>0?recordingLabel+"\n":"")+message+"\nGraves (ciano): 80-350 Hz · médios (violeta): 350-2000 Hz · agudos (âmbar): 2-8 kHz.\nCores representam energia sonora, não intenção. Glifos STT são decorativos.\nClique esquerdo: iniciar / pausar monitoramento. Botao direito: historico e demais acoes.";
         AutomationProperties.SetHelpText(drawing,message);AutomationProperties.SetHelpText(this,message);
     }
-    protected override void OnClosed(EventArgs e){pulse.Stop();settle.Stop();SystemParameters.StaticPropertyChanged-=SystemChanged;base.OnClosed(e);}
+    protected override void OnClosed(EventArgs e){anchor.Dispose();menuDismissal?.Dispose();pulse.Stop();settle.Stop();SystemParameters.StaticPropertyChanged-=SystemChanged;base.OnClosed(e);}
 }
 
 internal sealed class FlowDrawing : FrameworkElement
@@ -111,6 +150,7 @@ internal sealed class FlowDrawing : FrameworkElement
         RenderCount++;base.OnRender(d);d.PushClip(OuterClip);
         d.DrawEllipse(Glass,new Pen(Ui.Line,1),new(36,36),31,31);
         d.DrawEllipse(null,new Pen(Ui.Line,.65),new(36,36),24,24);
+        if(owner.RecordingLabel.Length>0){d.DrawEllipse(Red,null,new(56,18),4,4);}
         var bands=owner.Bands;var values=new[]{bands.Low,bands.Mid,bands.High};var colors=new[]{Cyan,Violet,Amber};
         for(var band=0;band<3;band++)for(var bar=0;bar<8;bar++)
         {
@@ -129,7 +169,7 @@ internal sealed class FlowDrawing : FrameworkElement
         {
             var (glyph,tag,color)=scene switch
             {
-                LensScene.Throttled=>("\uE823","",Amber),LensScene.Paused=>("\uE769","",Ui.Ink),LensScene.Listening=>("\uE720","",Ui.Ink),
+                LensScene.Throttled=>("\uE823","",Amber),LensScene.Paused=>("\uE768","",Ui.Ink),LensScene.Listening=>("\uE769",owner.RemoteLimited?"Provedor":"",Ui.Ink),
                 LensScene.FilterApproved=>("\uE73E","Filtro",Green),LensScene.FilterRejected=>("\uE711","Filtro",Red),
                 LensScene.TranscriptReady=>("\uE73E","STT",Green),LensScene.EmptyTranscript=>("\uE711","STT",Red),
                 LensScene.ResponseReady=>("\uE73E","Texto",Green),_=>("\uE7BA","",Red)
