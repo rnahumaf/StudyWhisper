@@ -58,7 +58,7 @@ public sealed class OrbWindow : PassiveWindow
     public string RecordingLabel=>recordingLabel;
     public void SetMonitoringState(bool enabled,bool available)
     {
-        AutomationProperties.SetName(drawing,!available?"StudyWhisper: gravacao em andamento":enabled?"StudyWhisper: pausar monitoramento":"StudyWhisper: iniciar monitoramento");
+        AutomationProperties.SetName(drawing,"StudyWhisper: abrir últimas interações");
     }
     public void SetRecordingState(string label){recordingLabel=label;UpdateHelp();drawing.InvalidateVisual();}
     internal double Motion=>EffectiveReduceMotion?0:Environment.TickCount64/1000.0;
@@ -68,12 +68,12 @@ public sealed class OrbWindow : PassiveWindow
     {
         Title="StudyWhisper · Monitoramento";Width=Height=72;AllowsTransparency=true;Background=Brushes.Transparent;
         drawing=new FlowDrawing(this){Cursor=Cursors.Hand};Content=drawing;
-        AutomationProperties.SetName(drawing,"StudyWhisper: iniciar / pausar monitoramento");
+        AutomationProperties.SetName(drawing,"StudyWhisper: abrir últimas interações");
         anchor=new MonitorAnchor(this);
         drawing.MouseLeftButtonDown+=(_,e)=>{click.Begin(e.GetPosition(drawing));drawing.CaptureMouse();e.Handled=true;};
         drawing.MouseMove+=(_,e)=>click.Move(e.GetPosition(drawing));
         drawing.LostMouseCapture+=(_,_)=>click.Cancel();
-        drawing.MouseLeftButtonUp+=(_,e)=>{var p=e.GetPosition(drawing);var invoke=click.End(p,p.X>=0&&p.Y>=0&&p.X<=drawing.ActualWidth&&p.Y<=drawing.ActualHeight);drawing.ReleaseMouseCapture();e.Handled=true;if(invoke)toggle();};
+        drawing.MouseLeftButtonUp+=(_,e)=>{var p=e.GetPosition(drawing);var invoke=click.End(p,p.X>=0&&p.Y>=0&&p.X<=drawing.ActualWidth&&p.Y<=drawing.ActualHeight);drawing.ReleaseMouseCapture();e.Handled=true;if(invoke)history();};
         var menu=new ContextMenu{StaysOpen=false};
         if(rewrite is not null){var item=new MenuItem{Header="Rewrite"};item.Click+=(_,_)=>rewrite();menu.Items.Add(item);}
         if(record is not null)
@@ -123,7 +123,7 @@ public sealed class OrbWindow : PassiveWindow
         var message=(status.Phase is Phase.Error or Phase.Throttled or Phase.Recovering or Phase.Blocked?status.Message:Flow.Reason)+(Flow.Queued>0?$" · Fila {Flow.Queued}/2":"")+(Flow.Incoming.Length>0?" · "+Flow.Incoming:"");
         if(RemoteLimited&&CaptureStreaming)message="Ouvindo normalmente. O provedor limitou temporariamente os envios. "+message;
         if(CaptureSummary.Length>0)message+="\n"+CaptureSummary;
-        drawing.ToolTip=(recordingLabel.Length>0?recordingLabel+"\n":"")+message+"\nGraves (ciano): 80-350 Hz · médios (violeta): 350-2000 Hz · agudos (âmbar): 2-8 kHz.\nCores representam energia sonora, não intenção. Glifos STT são decorativos.\nClique esquerdo: iniciar / pausar monitoramento. Botao direito: historico e demais acoes.";
+        drawing.ToolTip=(recordingLabel.Length>0?recordingLabel+"\n":"")+message+"\nGraves (ciano): 80-350 Hz · médios (violeta): 350-2000 Hz · agudos (âmbar): 2-8 kHz.\nCores representam energia sonora, não intenção. Glifos STT são decorativos.\nClique esquerdo: abrir últimas interações. Botão direito: menu de ações.";
         AutomationProperties.SetHelpText(drawing,message);AutomationProperties.SetHelpText(this,message);
     }
     protected override void OnClosed(EventArgs e){anchor.Dispose();menuDismissal?.Dispose();pulse.Stop();settle.Stop();SystemParameters.StaticPropertyChanged-=SystemChanged;base.OnClosed(e);}

@@ -32,29 +32,30 @@ public sealed class CallTracker
     public void Cooldown(TimeSpan duration,string reason="OpenRouter HTTP 429"){lock(sync){blockedUntil=clock()+TimeSpan.FromSeconds(Math.Clamp(duration.TotalSeconds,1,3600));cooldownReason=reason;}}
 }
 
-public sealed class OpenRouter : IStudyApi,IRecordingApi
+public sealed class OpenRouter : IStudyApi,IRecordingApi,IRecordingRewriter
 {
     private readonly HttpClient http;
     private readonly Func<string> key;
     private readonly Settings settings;
     private readonly TimeSpan requestTimeout;
+    private readonly TimeSpan recordingRewriteTimeout;
     private readonly SessionCounters? counters;
     public CallTracker Tracker { get; }
     private static readonly Uri Root=new("https://openrouter.ai/");
     public OpenRouter(HttpClient http,Func<string> key,Settings settings,CallTracker? tracker=null,TimeSpan? requestTimeout=null,SessionCounters? counters=null)
-    { this.http=http; this.key=key; this.settings=settings;this.counters=counters; Tracker=tracker??new();this.requestTimeout=requestTimeout??TimeSpan.FromSeconds(45);if(this.requestTimeout<=TimeSpan.Zero||this.requestTimeout>TimeSpan.FromSeconds(45))throw new ArgumentOutOfRangeException(nameof(requestTimeout)); }
+    { this.http=http; this.key=key; this.settings=settings;this.counters=counters; Tracker=tracker??new();this.requestTimeout=requestTimeout??TimeSpan.FromSeconds(45);this.recordingRewriteTimeout=requestTimeout??TimeSpan.FromMinutes(3);if(this.requestTimeout<=TimeSpan.Zero||this.requestTimeout>TimeSpan.FromSeconds(45))throw new ArgumentOutOfRangeException(nameof(requestTimeout)); }
     public void EnsureCanStart()=>Tracker.EnsureAvailable();
     private Dictionary<string,object> Policy()=>settings.RequireZdr?new() { ["zdr"]=true,["data_collection"]="deny" }:new();
-    private async Task<JsonDocument> Request(string path,object? body,bool authenticated,bool inference,CancellationToken token,string? explicitKey=null,double audioSeconds=0)
+    private async Task<JsonDocument> Request(string path,object? body,bool authenticated,bool inference,CancellationToken token,string? explicitKey=null,double audioSeconds=0,TimeSpan? timeoutLimit=null)
     {
         if(inference)await Tracker.InferenceSlot.WaitAsync(token).ConfigureAwait(false);
-        try{return await RequestCore(path,body,authenticated,inference,token,explicitKey,audioSeconds).ConfigureAwait(false);}
+        try{return await RequestCore(path,body,authenticated,inference,token,explicitKey,audioSeconds,timeoutLimit).ConfigureAwait(false);}
         finally{if(inference)Tracker.InferenceSlot.Release();}
     }
-    private async Task<JsonDocument> RequestCore(string path,object? body,bool authenticated,bool inference,CancellationToken token,string? explicitKey=null,double audioSeconds=0)
+    private async Task<JsonDocument> RequestCore(string path,object? body,bool authenticated,bool inference,CancellationToken token,string? explicitKey=null,double audioSeconds=0,TimeSpan? timeoutLimit=null)
     {
         token.ThrowIfCancellationRequested(); if(inference) Tracker.Take();
-        using var timeout=CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(requestTimeout);
+        using var timeout=CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(timeoutLimit??requestTimeout);
         using var request=new HttpRequestMessage(body is null?HttpMethod.Get:HttpMethod.Post,new Uri(Root,path));
         if(authenticated)
         {
@@ -65,7 +66,7 @@ public sealed class OpenRouter : IStudyApi,IRecordingApi
         if(body is not null) request.Content=JsonContent.Create(body);
         HttpResponseMessage response;
         try { if(inference)counters?.Call(path,audioSeconds);response=await http.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,timeout.Token); }
-        catch(OperationCanceledException) when(!token.IsCancellationRequested) { throw new ApiException("OpenRouter excedeu 45 segundos. Nenhuma repetição automática foi feita."); }
+        catch(OperationCanceledException) when(!token.IsCancellationRequested) { throw new ApiException($"OpenRouter excedeu o prazo de {(timeoutLimit??requestTimeout).TotalSeconds:0} segundos. Nenhuma repetição automática foi feita."); }
         try
         {
         using(response)
@@ -181,6 +182,41 @@ public sealed class OpenRouter : IStudyApi,IRecordingApi
         }
         catch(Exception ex) when(ex is KeyNotFoundException or InvalidOperationException or IndexOutOfRangeException){throw new ApiException("A revisão retornou formato inesperado; o texto original foi preservado.");}
     }
+    public async Task<string> RewriteRecordingAsync(string text,CancellationToken token)
+    {
+        if(string.IsNullOrWhiteSpace(text))throw new ArgumentException("Não há transcrição para revisar.");
+        var parts=RecordingRewrite.Split(text);var result=new System.Text.StringBuilder();var offset=0;
+        for(var index=0;index<parts.Count;index++)
+        {
+            token.ThrowIfCancellationRequested();var source=parts[index];var end=offset+source.Length;
+            var data=JsonSerializer.Serialize(new{part=index+1,parts=parts.Count,source,before=text[Math.Max(0,offset-400)..offset],after=text[end..Math.Min(text.Length,end+400)]});
+            var body=new{model=settings.AnswerModel,messages=new[]{new{role="system",content=RecordingRewrite.Instructions},new{role="user",content=data}},stream=false,max_tokens=12000,temperature=0,provider=Policy(),reasoning=new{effort="low"}};
+            using var response=await Request("api/v1/chat/completions",body,true,true,token,timeoutLimit:recordingRewriteTimeout).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();var revised=ReadRecordingRevision(response.RootElement);
+            RecordingRewrite.CheckLiteralContent(source,revised);
+            if(result.Length>0)result.Append(parts[index-1].EndsWith('\n')?Environment.NewLine+Environment.NewLine:" ");
+            result.Append(revised.Trim());offset=end;
+        }
+        token.ThrowIfCancellationRequested();return result.ToString();
+    }
+    private static string ReadRecordingRevision(JsonElement root)
+    {
+        try
+        {
+            var choice=root.GetProperty("choices")[0];
+            if(!choice.TryGetProperty("finish_reason",out var reason)||reason.ValueKind!=JsonValueKind.String||reason.GetString()!="stop")
+                throw new ApiException("A revisão não terminou integralmente. O original foi preservado; nenhum texto parcial foi publicado.");
+            var message=choice.GetProperty("message");
+            if(message.TryGetProperty("refusal",out var refusal)&&refusal.ValueKind==JsonValueKind.String&&!string.IsNullOrWhiteSpace(refusal.GetString()))
+                throw new ApiException("O modelo não concluiu a revisão. O original foi preservado.");
+            var content=message.GetProperty("content");
+            if(content.ValueKind!=JsonValueKind.String||string.IsNullOrWhiteSpace(content.GetString()))
+                throw new ApiException("A revisão retornou vazia. O original foi preservado.");
+            return content.GetString()!;
+        }
+        catch(Exception ex) when(ex is KeyNotFoundException or InvalidOperationException or IndexOutOfRangeException)
+        {throw new ApiException("A revisão retornou formato inesperado. O original foi preservado.");}
+    }
     public static Judgment ParseJudgment(JsonElement root)
     {
         try
@@ -233,10 +269,11 @@ public sealed class OpenRouter : IStudyApi,IRecordingApi
 }
 
 /// <summary>Deterministic fixture. Never opens an HTTP connection or audio device.</summary>
-public sealed class DemoApi : IStudyApi
+public sealed class DemoApi : IStudyApi,IRecordingRewriter
 {
     public string Transcript { get; set; }="Qual é a diferença entre mitose e meiose?";
     public async Task<string> TranscribeAsync(byte[] wav,CancellationToken token) { await Task.Delay(350,token); return Transcript; }
+    public async Task<string> RewriteRecordingAsync(string text,CancellationToken token){await Task.Delay(350,token);return text;}
     public async Task<Judgment> ClassifyAsync(string transcript,string context,CancellationToken token)
     { await Task.Delay(300,token); return transcript.Contains('?')?new(Decision.Respond,.9,.95):transcript.EndsWith("entre")?new(Decision.Wait,.9,.05):new(Decision.Ignore,.95,.02); }
     public async Task<StudyAnswer> AnswerAsync(string transcript,IReadOnlyList<Turn> memory,CancellationToken token)

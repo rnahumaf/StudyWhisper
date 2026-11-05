@@ -51,8 +51,10 @@ public sealed class Controller : IDisposable
     private Task interruptedRecordingIdle=Task.CompletedTask;
     private RecordingsWindow? recordingsWindow;
     private bool changingMode,stoppingRecording,resumeMonitoring;
+    private CancellationTokenSource? recordingRewrite;
+    private string? recordingRewriteId;
     private readonly Forms.ToolStripMenuItem? recordMenu;
-    public string RecordAction=>changingMode?"Preparando…":stoppingRecording?"Parando…":recording is null?"Gravar":"Parar";
+    public string RecordAction=>changingMode?"Preparando…":recordingRewrite is not null||recording?.Snapshot.RewriteState==RecordingRewriteState.Processing?"Reescrevendo…":stoppingRecording?"Parando…":recording is null?"Gravar":"Parar";
     private readonly Dispatcher dispatcher=System.Windows.Application.Current.Dispatcher;
     public Controller(bool demo,bool smoke=false,string? dataRoot=null)
     {
@@ -60,7 +62,7 @@ public sealed class Controller : IDisposable
         recordings=new RecordingJournal(Path.Combine(dataRoot??(smoke?Path.Combine(Path.GetTempPath(),"StudyWhisper-recording-smoke-"+Guid.NewGuid()):demo?Path.Combine(Path.GetTempPath(),"StudyWhisper-recording-demo"):Storage.DefaultRoot),"recordings"));
         try{recordings.Recover();}catch(Exception ex) when(ex is IOException or UnauthorizedAccessException){lastStatus=new(Phase.Error,"Não foi possível recuperar o histórico de gravações. Confira o armazenamento local.");}
         updateSession=demo||smoke?null:Store.ReadUpdateSession();if(updateSession is not null)tracker.RestoreUsedForUpdate(updateSession.UsedCalls);if(updateSession?.CounterState is not null)Counters.Restore(updateSession.CounterState);
-        Orb=new OrbWindow(ToggleHistory,ShowSettings,ToggleMonitoringFromOrb,Clear,()=>System.Windows.Application.Current.Shutdown(),ToggleRecording,ShowRecordings,()=>RecordAction,ShowRewrite);Popover=new PopoverWindow(Clear);Tools=new OrbToolsWindow(Orb,ToggleRecording,ShowRewrite);
+        Orb=new OrbWindow(ToggleHistory,ShowSettings,ToggleMonitoringFromOrb,Clear,()=>System.Windows.Application.Current.Shutdown(),ToggleRecording,ShowRecordings,()=>RecordAction,ShowRewrite);Popover=new PopoverWindow(Clear);Tools=new OrbToolsWindow(Orb,ToggleMonitoringFromOrb,ToggleRecording,ShowRewrite);
         Orb.Configure(Settings.ReduceMotion);
         CreatePipeline(updateSession?.History);
         capture=new(()=>new Microphone(),OnFrame,ResetCaptureState);
@@ -159,18 +161,57 @@ public sealed class Controller : IDisposable
             return all.OrderByDescending(s=>s.Started).ToArray();
         }
     }
-    public void ShowRecordings(){rewriteWindow?.Hide();Popover.Hide();recordingsWindow??=new RecordingsWindow(()=>Recordings);recordingsWindow.Open(recording?.Id,Orb);}
+    public void ShowRecordings(){rewriteWindow?.Hide();Popover.Hide();recordingsWindow??=new RecordingsWindow(()=>Recordings,rewrite:RewriteRecordingAsync,cancelRewrite:CancelRecordingRewrite);recordingsWindow.Open(recording?.Id,Orb);}
     public void ShowRewrite(){Popover.Hide();recordingsWindow?.Hide();rewriteWindow??=new RewriteWindow(Orb,RewriteAsync);rewriteWindow.Open();}
+    private async Task RewriteRecordingAsync(string id)
+    {
+        if(disposed||changingMode||stoppingRecording||recording is not null||recordingRewrite is not null)
+            throw new InvalidOperationException("Conclua o processamento atual antes de reescrever outra gravação.");
+        var selected=Recordings.FirstOrDefault(s=>s.Id==id)??throw new InvalidOperationException("Gravação indisponível.");
+        if(selected.State is RecordingState.Recording or RecordingState.Stopping||selected.RewriteState==RecordingRewriteState.Processing)
+            throw new InvalidOperationException("A gravação ainda está sendo processada.");
+        var restoreMonitoring=pipeline.Enabled;Pause();
+        var cancellation=new CancellationTokenSource();recordingRewrite=cancellation;recordingRewriteId=id;var version=++modeVersion;UpdateRecordingMenu();
+        var secret="";
+        try
+        {
+            await Task.WhenAll(pipeline.WhenIdle,interruptedRecordingIdle).WaitAsync(cancellation.Token);
+            if(disposed||version!=modeVersion)throw new OperationCanceledException(cancellation.Token);
+            if(!Demo)
+            {
+                if(!Store.HasKey)throw new ApiException("Cadastre sua chave nas configurações antes de revisar.");
+                secret=Store.ReadKey();
+            }
+            IRecordingRewriter rewriter=Demo?demoApi:new OpenRouter(http,()=>secret,Settings,tracker,counters:Counters);
+            var result=await recordings.RewriteAsync(selected,rewriter,cancellation.Token,snapshot=>Dispatch(()=>
+            {
+                if(disposed)return;
+                completedRecordings[snapshot.Id]=snapshot;if(lastRecording?.Id==snapshot.Id)lastRecording=snapshot;recordingsWindow?.Refresh();
+            }));
+            if(!disposed){completedRecordings[result.Id]=result;if(lastRecording?.Id==result.Id)lastRecording=result;}
+        }
+        finally
+        {
+            var resume=restoreMonitoring&&!disposed&&version==modeVersion;
+            secret="";if(ReferenceEquals(recordingRewrite,cancellation)){recordingRewrite=null;recordingRewriteId=null;}cancellation.Dispose();
+            if(!disposed){UpdateRecordingMenu();recordingsWindow?.Refresh();if(resume)Toggle();}
+        }
+    }
+    private void CancelRecordingRewrite(string id)
+    {
+        if(recording?.Id==id)recording.CancelRewrite();
+        else if(recordingRewriteId==id)recordingRewrite?.Cancel();
+    }
     private async Task<string> RewriteAsync(string text,CancellationToken token)
     {
         if(Demo){await Task.Delay(350,token);return text;}
         if(!Store.HasKey)throw new ApiException("Cadastre sua chave nas configurações antes de revisar.");
         var secret=Store.ReadKey();try{return await new OpenRouter(http,()=>secret,Settings,tracker,counters:Counters).RewriteAsync(text,token);}finally{secret="";}
     }
-    public void ToggleRecording(){if(changingMode||stoppingRecording)return;if(recording is null)_=StartRecordingAsync();else _=StopRecordingAsync(true);}
+    public void ToggleRecording(){if(changingMode||stoppingRecording||recordingRewrite is not null)return;if(recording is null)_=StartRecordingAsync();else _=StopRecordingAsync(true);}
     public async Task StartRecordingAsync()
     {
-        if(disposed||changingMode||recording is not null)return;
+        if(disposed||changingMode||recording is not null||recordingRewrite is not null)return;
         if(!Demo&&!Store.HasKey){ShowSettings();return;}
         changingMode=true;resumeMonitoring=pipeline.Enabled;window?.Hide();UpdateRecordingMenu();
         try
@@ -210,20 +251,20 @@ public sealed class Controller : IDisposable
     }
     private void UpdateRecordingMenu()
     {
-        Tools.SetState(RecordAction);Orb.SetMonitoringState(pipeline.Enabled,!changingMode&&!stoppingRecording&&recording is null);
-        if(recordMenu is not null){recordMenu.Text=RecordAction;recordMenu.Enabled=!changingMode&&!stoppingRecording;}
-        if(toggle is not null)toggle.Enabled=!changingMode&&!stoppingRecording&&recording is null;
+        Tools.SetState(RecordAction);Orb.SetMonitoringState(pipeline.Enabled,!changingMode&&!stoppingRecording&&recording is null&&recordingRewrite is null);Tools.SetMonitoringState(pipeline.Enabled,!changingMode&&!stoppingRecording&&recording is null&&recordingRewrite is null);
+        if(recordMenu is not null){recordMenu.Text=RecordAction;recordMenu.Enabled=!changingMode&&!stoppingRecording&&recordingRewrite is null;}
+        if(toggle is not null)toggle.Enabled=!changingMode&&!stoppingRecording&&recording is null&&recordingRewrite is null;
     }
     private void RefreshRecording()
     {
         if(recording is null)return;var snapshot=recording.Snapshot;
-        var label=RecordingSnapshot.StateLabel(snapshot.State);
+        var label=snapshot.RewriteState==RecordingRewriteState.Processing?"Reescrevendo transcrição":RecordingSnapshot.StateLabel(snapshot.State);
         Orb.SetRecordingState(label+(captureStatus?.State is CaptureState.Recovering or CaptureState.Starting?" · aguardando entrada de áudio":""));
         if(tray is not null)tray.Text="StudyWhisper · "+label;
         UpdateRecordingMenu();recordingsWindow?.Refresh();
     }
     public bool MonitoringEnabled=>pipeline.Enabled;
-    public void ShowSettings() {if(recording is not null||changingMode){ShowRecordings();return;}if(window is null){window=new SettingsWindow(this);window.Closed+=(_,_)=>window=null;}window.Show();window.Activate();}
+    public void ShowSettings() {if(recording is not null||changingMode||recordingRewrite is not null){ShowRecordings();return;}if(window is null){window=new SettingsWindow(this);window.Closed+=(_,_)=>window=null;}window.Show();window.Activate();}
     public void CheckDependencies()
     {
         Pause();
@@ -238,14 +279,14 @@ public sealed class Controller : IDisposable
     }
     public void Save(Settings s)
     {
-        if(recording is not null||changingMode)throw new InvalidOperationException("Pare a gravação antes de alterar as configurações.");
+        if(recording is not null||changingMode||recordingRewrite is not null)throw new InvalidOperationException("Pare a gravação antes de alterar as configurações.");
         Pause(); if(!Demo) {Store.Save(s);try{Storage.Startup(s.StartWithWindows);}catch{Store.Save(Settings);throw;}} Settings=s;
         var history=pipeline.History;pipeline.Dispose();CreatePipeline(history);Orb.Configure(s.ReduceMotion);
     }
-    internal void ToggleMonitoringFromOrb(){if(!disposed&&!changingMode&&!stoppingRecording&&recording is null)Toggle();}
+    internal void ToggleMonitoringFromOrb(){if(!disposed&&!changingMode&&!stoppingRecording&&recording is null&&recordingRewrite is null)Toggle();}
     public void Toggle()
     {
-        if(changingMode)return;
+        if(changingMode||recordingRewrite is not null)return;
         if(recording is not null){_=StopRecordingAsync(false);return;}
         if(!interruptedRecordingIdle.IsCompleted){_=ResumeMonitoringWhenIdleAsync();return;}
         if(pipeline.Enabled){Pause();return;}
@@ -270,7 +311,7 @@ public sealed class Controller : IDisposable
         try{await interruptedRecordingIdle;if(!disposed&&version==modeVersion){changingMode=false;Toggle();}}
         finally{changingMode=false;UpdateRecordingMenu();}
     }
-    private void UpdateTray() {Orb.SetMonitoringState(pipeline.Enabled,!changingMode&&!stoppingRecording&&recording is null);var state=!pipeline.Enabled?"Monitoramento desativado":captureStatus?.State==CaptureState.Recovering?"Reconectando entrada de áudio":captureStatus?.State==CaptureState.Blocked?"Entrada de áudio indisponível":"Monitoramento ativado";if(toggle is not null){toggle.Text=state;toggle.Checked=pipeline.Enabled;}if(tray is not null)tray.Text="StudyWhisper • "+state;}
+    private void UpdateTray() {Orb.SetMonitoringState(pipeline.Enabled,!changingMode&&!stoppingRecording&&recording is null&&recordingRewrite is null);Tools.SetMonitoringState(pipeline.Enabled,!changingMode&&!stoppingRecording&&recording is null&&recordingRewrite is null);var state=!pipeline.Enabled?"Monitoramento desativado":captureStatus?.State==CaptureState.Recovering?"Reconectando entrada de áudio":captureStatus?.State==CaptureState.Blocked?"Entrada de áudio indisponível":"Monitoramento ativado";if(toggle is not null){toggle.Text=state;toggle.Checked=pipeline.Enabled;}if(tray is not null)tray.Text="StudyWhisper • "+state;}
     private void ResetCaptureState(){lock(audioLock){gate?.Reset();demoVad?.Reset();spectrum.Reset();Volatile.Write(ref latestSpectrum,null);}}
     private void OnFrame(short[] frame)
     {
@@ -312,7 +353,7 @@ public sealed class Controller : IDisposable
     }
     public void Pause()
     {
-        modeVersion++;
+        modeVersion++;recordingRewrite?.Cancel();
         if(recording is not null){var interrupted=recording;lock(audioLock){recording=null;interrupted.Dispose();interruptedRecordingIdle=interrupted.WhenIdle;lastRecording=interrupted.Snapshot;completedRecordings[lastRecording.Id]=lastRecording;}Orb.SetRecordingState("");recordingsWindow?.Refresh();}
         healthTimer.Stop();pipeline.Pause();capture.Stop();captureStatus=null;processingBlocked=false;activeKey="";lock(audioLock){gate?.Dispose();gate=null;demoVad?.Reset();spectrum.Reset();Volatile.Write(ref latestSpectrum,null);}lastStatus=new(Phase.Paused,"Monitoramento desativado");Orb.SetStatus(lastStatus);RefreshCaptureHealth();UpdateTray();
     }

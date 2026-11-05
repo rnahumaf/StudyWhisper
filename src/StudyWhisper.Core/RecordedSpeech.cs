@@ -20,7 +20,7 @@ public static class RecordingBoundary
 {
     private sealed record Token(string Value,int Start,int End,double From,double To);
     private sealed record Anchor(int Old,int Current,int Count,double Error);
-    private static readonly Regex Words=new(@"[\p{L}\p{M}\p{N}]+(?:[.,:/-][\p{N}]+)*",RegexOptions.Compiled|RegexOptions.CultureInvariant);
+    private static readonly Regex Words=new(@"[+\-−±]?\p{N}+(?:[.,:/-]\p{N}+)*[%‰°]?|[\p{L}\p{M}\p{N}]+|[\p{S}%‰°\-]",RegexOptions.Compiled|RegexOptions.CultureInvariant);
     private static string Normalize(string value)=>value.Normalize(NormalizationForm.FormKC).ToLowerInvariant();
     private static Token[]? Tokens(RecordedSegment segment)
     {
@@ -38,15 +38,21 @@ public static class RecordingBoundary
     public static int StableEnd(RecordedSegment segment,double audioTime)
     {
         var tokens=Tokens(segment);if(tokens is null)return segment.ContentStart;
-        return Math.Max(segment.ContentStart,tokens.Where(t=>t.To<=audioTime).Select(t=>t.End).DefaultIfEmpty(segment.ContentStart).Max());
+        return Math.Max(segment.ContentStart,tokens.TakeWhile(t=>t.To<=audioTime).Select(t=>t.End).DefaultIfEmpty(segment.ContentStart).Max());
     }
     public static RecordingRevision[]? Reconcile(RecordedSegment previous,RecordedSegment current)
     {
         if(current.OriginalText.Length==0)return new[]{new RecordingRevision(previous.Sequence,previous.Text,false,previous.NeedsReview,previous.ContentStart)};
         if(current.From>=previous.To)return new[]{new RecordingRevision(previous.Sequence,previous.Text,false,previous.NeedsReview,previous.ContentStart)};
-        // A larger window re-transcribes the complete provisional preview with additional acoustic context.
+        // Extra acoustic coverage alone does not prove the preview's words survived recognition.
         if(Math.Abs(current.From-previous.From)<.001&&current.To>=previous.To)
-            return new[]{new RecordingRevision(previous.Sequence,"",false,false,0,true)};
+        {
+            var preview=Words.Matches(previous.OriginalText).Select(m=>Normalize(m.Value)).ToArray();
+            var replacement=Words.Matches(current.OriginalText).Select(m=>Normalize(m.Value)).ToArray();
+            if(previous.OriginalText.Length==0||preview.Length>0&&replacement.Take(preview.Length).SequenceEqual(preview))
+                return new[]{new RecordingRevision(previous.Sequence,"",false,false,0,true)};
+            return null;
+        }
         var old=Tokens(previous);var next=Tokens(current);if(old is null||next is null)return null;
         if(!old.Any(t=>t.To>current.From&&t.From<previous.To)&&!next.Any(t=>t.To>current.From&&t.From<previous.To))return new[]{new RecordingRevision(previous.Sequence,previous.Text,false,previous.NeedsReview,previous.ContentStart)};
         bool Same(int a,int b)
@@ -73,6 +79,11 @@ public static class RecordingBoundary
         if(anchors.Count==0)return null;
         var best=anchors.OrderBy(a=>a.Error).ThenByDescending(a=>a.Count).ThenBy(a=>a.Old).First();
         if(anchors.Any(a=>a.Old-a.Current!=best.Old-best.Current&&a.Error<=best.Error+.1))return null;
+        // Every discarded word needs an equivalent retained counterpart, not just a common anchor.
+        // A changed negation, value or suffix therefore leaves both hypotheses visible for review.
+        var offset=best.Old-best.Current;
+        if(offset<0||next.Length<old.Length-offset)return null;
+        for(var b=0;b<old.Length-offset;b++)if(!Same(offset+b,b))return null;
         var length=Math.Min(3,best.Count);var oldEnd=old[best.Old+length-1].End;var newStart=next[best.Current+length-1].End;
         if(oldEnd<previous.ContentStart)return null;
         return new[]{new RecordingRevision(previous.Sequence,previous.OriginalText[previous.ContentStart..oldEnd].Trim(),false,previous.NeedsReview,previous.ContentStart),new RecordingRevision(current.Sequence,current.OriginalText[newStart..].Trim(),true,false,newStart)};

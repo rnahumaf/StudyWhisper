@@ -93,3 +93,16 @@ Gravar / Parar e Gravações estão no menu do círculo e da bandeja. O modo con
 ## Preparação local 0.1.14
 
 Janelas STT de 12 segundos com overlap de 3, prévia aos 6, reconciliação por timestamps e separação entre texto consolidado e provisório. Painel ancorado, Rec/Stop direto e Rewrite com snapshot canônica versionada do LMDocs. Modelo padrão de resposta/Rewrite verificado: `deepseek/deepseek-v4.1-flash-1017`, com ZDR preservado; STT e JEV mantidos. A versão está preparada em cópia isolada e não foi instalada. Veja [diagnóstico, comparação controlada e limites](docs/RECORDING-0.1.14.md).
+
+## Captura e reescrita local, 0.1.16
+
+Ao parar a gravação, o app conclui os blocos de áudio pendentes e reescreve automaticamente toda a transcrição disponível. O painel mostra o texto final e os trechos originais, permite expandir para baixo ou ajustar a altura pelo puxador inferior e conserva a posição de leitura. É possível cancelar a reescrita ou solicitá-la novamente no próprio histórico.
+
+A revisão usa o modelo de resposta configurado e pode gerar cobrança por parte de texto. Não faz pesquisa online. Números, negações e avisos de incerteza têm verificações conservadoras; a precisão semântica ainda depende do modelo e da revisão do usuário. Falhas preservam o original e não provocam repetição automática de chamadas.
+
+Preparação local, sem instalação nem publicação: `artifacts/StudyWhisper-0.1.16-Setup-x64.exe`. Veja o [diagnóstico, comportamento e limites de validação](docs/RECORDING-0.1.16.md).
+
+
+## Instalação local 0.1.17
+
+Em 05/11/2026, a versão 0.1.17 foi instalada localmente com ícone próprio. Ao abrir o atalho com o aplicativo já em execução, a instância existente apresenta configurações ou gravações, conforme o estado. As notas de preparação anteriores descrevem o estado na data em que foram escritas. A validação de ativação usou demonstração offline e o atalho instalado; a interação durante uma gravação real não foi exercitada.
