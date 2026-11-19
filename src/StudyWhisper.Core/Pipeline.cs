@@ -28,6 +28,8 @@ public sealed class Pipeline : IDisposable
     public event Action<Status>? Changed;
     public event Action<FlowNotice>? Flow;
     public event Action<Turn>? Replied;
+    // Text is delivered only to the local session view, never to flow diagnostics.
+    public event Action<int,long,string>? Transcribed;
     public Pipeline(IStudyApi api, Settings settings, Func<DateTimeOffset>? clock = null,IReadOnlyList<Turn>? initialHistory=null,SessionCounters? counters=null) { this.api=api; this.settings=settings;this.counters=counters; now=clock??(()=>DateTimeOffset.UtcNow); if(initialHistory is not null)history.AddRange(initialHistory.TakeLast(30));expiry=new Timer(_=>{lock(sync)if(!disposed)ExpireQueue();},null,1000,1000); }
     public bool Enabled { get { lock(sync) return enabled; } }
     public int Epoch {get{lock(sync)return generation;}}
@@ -108,6 +110,7 @@ public sealed class Pipeline : IDisposable
             lock(sync)
             {
                 if(epoch!=generation||!enabled) return true;
+                Transcribed?.Invoke(epoch,work.Id,text);
                 if(now()-pendingAt<TimeSpan.FromSeconds(12)) text=(pending+" "+text).Trim();
                 pending=""; if(text.Length>4000) text=text[^4000..];
                 memory=settings.Memory?history.TakeLast(10).ToArray():Array.Empty<Turn>();

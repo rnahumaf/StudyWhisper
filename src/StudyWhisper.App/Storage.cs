@@ -11,6 +11,19 @@ public sealed class Storage(string root)
 {
     public static string DefaultRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"StudyWhisper");
     public bool HasKey=>File.Exists(Path.Combine(root,"openrouter.dpapi"));
+    public void DiscardLegacyRewriteWork()
+    {
+        var folder=Path.Combine(root,"rewrite-work");
+        if(!Directory.Exists(folder))return;
+        if(File.GetAttributes(folder).HasFlag(FileAttributes.ReparsePoint))
+            throw new IOException("A pasta antiga de reescritas foi redirecionada.");
+        foreach(var path in Directory.EnumerateFiles(folder,"*.jsonl"))
+        {
+            var name=Path.GetFileNameWithoutExtension(path);
+            if(name.Length==64&&name.All(Uri.IsHexDigit))File.Delete(path);
+        }
+        if(!Directory.EnumerateFileSystemEntries(folder).Any())Directory.Delete(folder);
+    }
     public Settings Load()
     {
         try { var s=JsonSerializer.Deserialize<Settings>(File.ReadAllText(Path.Combine(root,"settings.json")))??new(); s.Validate(); return s; }

@@ -40,7 +40,11 @@ Em 04/10/2026 foi conferido o contrato oficial de [Web Search Server Tool](https
 
 Em 15/10/2026, o catálogo de decisões e o endpoint público confirmaram `typesafe/jev-1.14`, revisão `typesafe/jev-1.14-20261014`, com entrada textual e saída `decisions`. A versão local 0.1.9 mantém `POST /api/alpha/decisions` e o contrato `answers.action` do tipo `choice`, incluindo probabilidades e limiar 0,65. JEV 1.13 e o alias latest permanecem no catálogo para seleção manual. Falhas continuam interrompendo o fluxo, sem repetição automática, troca silenciosa de modelo ou relaxamento de ZDR/coleta.
 
-## Reescrita de gravações, 0.1.16
+## Transcrição contínua na versão 0.1.23
+
+O modo Transcrição usa o endpoint de áudio com o modelo STT e a política de dados configurados. Parar conclui os blocos pendentes de STT. Somente o modo Perguntas chama o classificador e pode solicitar uma resposta ao chat.
+
+## Contrato histórico de reescrita de gravações da versão 0.1.16
 
 A finalização usa o mesmo `POST /api/v1/chat/completions`, modelo de resposta configurado e política de provedor, sem ferramentas de pesquisa. Para cada parte: `stream=false`, `max_tokens=12000`, `temperature=0`, `reasoning.effort=low`. A implementação exige conteúdo textual não vazio, ausência de recusa e `choices[0].finish_reason=stop`; outras finalizações não são apresentadas como texto final completo. O contrato de campos foi consultado em 04/11/2026 na [referência oficial de Chat Completions](https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion).
 

@@ -4,9 +4,9 @@ using System.Runtime.InteropServices;
 namespace StudyWhisper.Core;
 
 public enum RecordingState { Recording, Stopping, Completed, Interrupted }
-public sealed record RecordingEntry(string Kind,DateTimeOffset At,long Sequence=0,double From=0,double To=0,string Text="",string Note="",bool Provisional=false,TranscriptWord[]? Words=null,double? Confidence=null,RecordingRevision[]? Revisions=null,RecordingProfile? Profile=null,string FinalText="",RecordingRewriteState RewriteState=RecordingRewriteState.NotStarted,string RewriteNotice="");
+public sealed record RecordingEntry(string Kind,DateTimeOffset At,long Sequence=0,double From=0,double To=0,string Text="",string Note="",bool Provisional=false,TranscriptWord[]? Words=null,double? Confidence=null,RecordingRevision[]? Revisions=null,RecordingProfile? Profile=null);
 public sealed record RecordedSegment(long Sequence,double From,double To,string Text,string Note,bool Pending,bool Provisional=false,bool NeedsReview=false,string OriginalText="",TranscriptWord[]? Words=null,double? Confidence=null,int ContentStart=0,bool Superseded=false);
-public sealed record RecordingSnapshot(string Id,DateTimeOffset Started,string Model,RecordingState State,IReadOnlyList<RecordedSegment> Segments,string Notice,RecordingProfile? Profile=null,string FinalText="",RecordingRewriteState RewriteState=RecordingRewriteState.NotStarted,string RewriteNotice="")
+public sealed record RecordingSnapshot(string Id,DateTimeOffset Started,string Model,RecordingState State,IReadOnlyList<RecordedSegment> Segments,string Notice,RecordingProfile? Profile=null)
 {
     private IEnumerable<RecordedSegment> Visible=>Segments.Where(s=>!s.Superseded);
     private static string Render(RecordedSegment s)=>s.Pending?$"[{s.From:0.0}–{s.To:0.0}s: transcrição pendente]":s.Note.Length>0?$"[{s.From:0.0}–{s.To:0.0}s: {s.Note}]":(s.NeedsReview?"[Borda a revisar] ":s.Provisional?"[Provisório] ":"")+s.Text;
@@ -22,9 +22,8 @@ public sealed record RecordingSnapshot(string Id,DateTimeOffset Started,string M
     }
     public string OriginalTranscript=>string.Join(Environment.NewLine+Environment.NewLine,Segments.Where(s=>s.OriginalText.Length>0).Select(s=>$"[{s.From:0.0}–{s.To:0.0}s · trecho {s.Sequence}]\n{s.OriginalText}"));
     public bool NeedsReview=>Visible.Any(s=>s.NeedsReview);
-    public string RewriteLabel=>RewriteState switch{RecordingRewriteState.Processing=>"Revisando",RecordingRewriteState.Completed=>"Texto final pronto",RecordingRewriteState.Failed=>"Revisão não concluída",RecordingRewriteState.Cancelled=>"Revisão interrompida",_=>"Aguardando revisão"};
-    public string Label=>$"{Started.LocalDateTime:g} · {StateLabel(State)}";
-    public static string StateLabel(RecordingState state)=>state switch{RecordingState.Recording=>"Gravando",RecordingState.Stopping=>"Parando",RecordingState.Completed=>"Concluído",_=>"Interrompido"};
+    public string Label=>$"{Started.LocalDateTime:d} {Started.LocalDateTime:T} · {StateLabel(State)}";
+    public static string StateLabel(RecordingState state)=>state switch{RecordingState.Recording=>"Transcrevendo",RecordingState.Stopping=>"Finalizando",RecordingState.Completed=>"Concluída",_=>"Interrompida"};
 }
 
 /// <summary>Append-only text/metadata journal; each accepted result is flushed before publication. No PCM on disk.</summary>
@@ -39,33 +38,28 @@ public sealed class RecordingJournal
         AppendFile(Path.Combine(root,id+".v2.jsonl"),new("started",DateTimeOffset.UtcNow,Text:model,Profile:profile));return id;
     }
     private string PathFor(string id){if(!Guid.TryParseExact(id,"N",out _))throw new ArgumentException("Sessão inválida.");var v2=Path.Combine(root,id+".v2.jsonl");return File.Exists(v2)?v2:Path.Combine(root,id+".jsonl");}
-    private IEnumerable<string> Ids()=>Directory.EnumerateFiles(root,"*.jsonl").Select(Path.GetFileNameWithoutExtension).Select(name=>name!.EndsWith(".v2",StringComparison.Ordinal)?name[..^3]:name).Where(id=>Guid.TryParseExact(id,"N",out _)).Distinct(StringComparer.Ordinal);
-    public void Append(string id,RecordingEntry entry){lock(writeSync)AppendFile(PathFor(id),entry);}
-    internal static RecordingEntry RewriteEntry(RecordingSnapshot snapshot)=>new(snapshot.State==RecordingState.Interrupted?"interrupted":"completed",DateTimeOffset.UtcNow,Note:snapshot.Notice,FinalText:snapshot.FinalText,RewriteState:snapshot.RewriteState,RewriteNotice:snapshot.RewriteNotice);
-    public Task<RecordingSnapshot> RewriteAsync(RecordingSnapshot snapshot,IRecordingRewriter rewriter,CancellationToken token,Action<RecordingSnapshot>? changed=null)
+    private IEnumerable<(string Id,string Path)> Files()
     {
-        RecordingSnapshot Publish(RecordingSnapshot value)
+        foreach(var file in Directory.EnumerateFiles(root,"*.jsonl"))
         {
-            if(token.IsCancellationRequested&&value.RewriteState!=RecordingRewriteState.Cancelled)
-                value=snapshot with{RewriteState=RecordingRewriteState.Cancelled,RewriteNotice="Revisão interrompida. O original foi preservado."};
-            try{Append(value.Id,RewriteEntry(value));}
-            catch(Exception ex) when(ex is IOException or UnauthorizedAccessException)
-            {value=value with{RewriteNotice=value.RewriteNotice+" Não foi possível salvar a revisão. O texto continua disponível para copiar enquanto o app estiver aberto."};}
-            changed?.Invoke(value);return value;
+            var name=Path.GetFileNameWithoutExtension(file);
+            var id=name.EndsWith(".v2",StringComparison.Ordinal)?name[..^3]:name;
+            if(Guid.TryParseExact(id,"N",out _))yield return(id,file);
         }
-        return RecordingRewrite.RunAsync(snapshot,rewriter,token,Publish);
     }
+    public void Append(string id,RecordingEntry entry){lock(writeSync)AppendFile(PathFor(id),entry);}
     private static void AppendFile(string file,RecordingEntry entry)
     {
         var bytes=Encoding.UTF8.GetBytes(JsonSerializer.Serialize(entry)+"\n");
         using var stream=new FileStream(file,FileMode.Append,FileAccess.Write,FileShare.Read);
         stream.Write(bytes);stream.Flush(true);
     }
-    public IReadOnlyList<RecordingSnapshot> ReadAll()=>!Directory.Exists(root)?Array.Empty<RecordingSnapshot>():Ids().Select(Read).OrderByDescending(s=>s.Started).ToArray();
-    public RecordingSnapshot Read(string id)
+    public IReadOnlyList<RecordingSnapshot> ReadAll()=>!Directory.Exists(root)?Array.Empty<RecordingSnapshot>():Files().Select(f=>f.Id).Distinct(StringComparer.Ordinal).Select(Read).OrderByDescending(s=>s.Started).ToArray();
+    public RecordingSnapshot Read(string id)=>ToSnapshot(id,ReadEntries(PathFor(id)));
+    private static RecordingSnapshot ToSnapshot(string id,List<RecordingEntry> entries)
     {
-        var entries=ReadEntries(id,out _);var first=entries.FirstOrDefault(e=>e.Kind=="started");
-        var state=RecordingState.Recording;var notice="";var finalText="";var rewriteState=RecordingRewriteState.NotStarted;var rewriteNotice="";var segments=new SortedDictionary<long,RecordedSegment>();
+        var first=entries.FirstOrDefault(e=>e.Kind=="started");
+        var state=RecordingState.Recording;var notice="";var segments=new SortedDictionary<long,RecordedSegment>();
         foreach(var e in entries)
         {
             switch(e.Kind)
@@ -74,46 +68,118 @@ public sealed class RecordingJournal
                 case "text":case "gap":segments[e.Sequence]=new(e.Sequence,e.From,e.To,e.Text,e.Note,false,e.Provisional,false,e.Text,e.Words,e.Confidence);break;
                 case "revise":if(e.Revisions is not null)foreach(var r in e.Revisions)if(segments.TryGetValue(r.Sequence,out var old))segments[r.Sequence]=old with{Text=r.Text,Provisional=r.Provisional,NeedsReview=r.NeedsReview,ContentStart=r.ContentStart,Superseded=r.Superseded};break;
                 case "stopping":state=RecordingState.Stopping;break;
-                case "completed":state=RecordingState.Completed;notice=e.Note;finalText=e.FinalText;rewriteState=e.RewriteState;rewriteNotice=e.RewriteNotice;break;
-                case "interrupted":state=RecordingState.Interrupted;notice=e.Note;finalText=e.FinalText;rewriteState=e.RewriteState;rewriteNotice=e.RewriteNotice;break;
+                case "completed":state=RecordingState.Completed;notice=e.Note;break;
+                case "interrupted":state=RecordingState.Interrupted;notice=e.Note;break;
             }
         }
-        return new(id,first?.At??DateTimeOffset.MinValue,first?.Text??"",state,segments.Values.ToArray(),notice,first?.Profile,finalText,rewriteState,rewriteNotice);
+        return new(id,first?.At??DateTimeOffset.MinValue,first?.Text??"",state,segments.Values.ToArray(),notice,first?.Profile);
     }
-    private List<RecordingEntry> ReadEntries(string id,out long validLength)
+    private static List<RecordingEntry> ReadEntries(string file,bool recover=false)
     {
-        // Read bytes so a torn final UTF-8 line can be truncated precisely at startup.
-        using var stream=new FileStream(PathFor(id),FileMode.Open,FileAccess.Read,FileShare.ReadWrite);using var copy=new MemoryStream();stream.CopyTo(copy);
-        var bytes=copy.ToArray();var entries=new List<RecordingEntry>();var begin=0;validLength=0;
-        for(var i=0;i<bytes.Length;i++)if(bytes[i]==10)
+        byte[] bytes;
+        using(var stream=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.ReadWrite))
         {
-            try
-            {
-                var entry=JsonSerializer.Deserialize<RecordingEntry>(bytes.AsSpan(begin,i-begin));
-                if(entry is null||entry.Text is null||entry.Note is null||entry.FinalText is null||entry.RewriteNotice is null||!Enum.IsDefined(entry.RewriteState)||entry.Sequence<0||!double.IsFinite(entry.From)||!double.IsFinite(entry.To)||entry.From<0||entry.To<entry.From||entry.Kind is not ("started" or "queued" or "text" or "gap" or "revise" or "stopping" or "completed" or "interrupted")||entry.Revisions?.Any(r=>r is null||r.Text is null||r.Sequence<0||r.ContentStart<0)==true)break;
-                entries.Add(entry);validLength=i+1;begin=i+1;
-            }
-            catch(JsonException){break;}
+            bytes=new byte[checked((int)stream.Length)];
+            stream.ReadExactly(bytes);
         }
-        return entries;
+        var result=new List<RecordingEntry>();
+        var offset=0;
+        var copied=0;
+        var temporary=file+".migration.tmp";
+        FileStream? output=null;
+        try
+        {
+            // A previous process can only have left this scratch file before the atomic replacement.
+            if(recover&&File.Exists(temporary))File.Delete(temporary);
+            while(offset<bytes.Length)
+            {
+                var newline=Array.IndexOf(bytes,(byte)'\n',offset);
+                var end=newline>=0?newline:bytes.Length;
+                var line=bytes.AsMemory(offset,end-offset);
+                RecordingEntry? entry;
+                try{entry=JsonSerializer.Deserialize<RecordingEntry>(line.Span);}
+                catch(JsonException){entry=null;}
+                if(entry is null||entry.Text is null||entry.Note is null||entry.Sequence<0||
+                    !double.IsFinite(entry.From)||!double.IsFinite(entry.To)||entry.From<0||entry.To<entry.From||
+                    entry.Kind is not ("started" or "queued" or "text" or "gap" or "revise" or "stopping" or "completed" or "interrupted")||
+                    entry.Revisions?.Any(r=>r is null||r.Text is null||r.Sequence<0||r.ContentStart<0)==true)
+                {
+                    if(recover&&newline>=0&&newline+1<bytes.Length)
+                        throw new IOException("Registro inválido antes do fim do arquivo. Histórico preservado.");
+                    break;
+                }
+                result.Add(entry);
+                if(recover&&HasLegacyProperty(line.Span))
+                {
+                    using var json=JsonDocument.Parse(line);
+                    if(json.RootElement.EnumerateObject().Any(p=>IsLegacyProperty(p.Name)))
+                    {
+                        output??=new FileStream(temporary,FileMode.CreateNew,FileAccess.Write,FileShare.None);
+                        output.Write(bytes.AsSpan(copied,offset-copied));
+                        using(var writer=new Utf8JsonWriter(output))
+                        {
+                            writer.WriteStartObject();
+                            foreach(var property in json.RootElement.EnumerateObject())
+                                if(!IsLegacyProperty(property.Name))property.WriteTo(writer);
+                            writer.WriteEndObject();
+                        }
+                        output.WriteByte((byte)'\n');
+                        copied=newline>=0?newline+1:end;
+                    }
+                }
+                offset=newline>=0?newline+1:end;
+            }
+            if(recover)
+            {
+                if(output is not null)
+                {
+                    output.Write(bytes.AsSpan(copied,offset-copied));
+                    if(offset>copied&&bytes[offset-1]!='\n')output.WriteByte((byte)'\n');
+                    output.Flush(true);output.Dispose();
+                    File.Move(temporary,file,true);
+                }
+                else if(offset<bytes.Length||offset>0&&bytes[offset-1]!='\n')
+                {
+                    using var stream=new FileStream(file,FileMode.Open,FileAccess.Write,FileShare.Read);
+                    stream.SetLength(offset);stream.Position=offset;
+                    if(offset>0&&bytes[offset-1]!='\n')stream.WriteByte((byte)'\n');
+                    stream.Flush(true);
+                }
+            }
+            return result;
+        }
+        finally
+        {
+            if(output is not null){output.Dispose();File.Delete(temporary);}
+        }
     }
+
+    private static bool HasLegacyProperty(ReadOnlySpan<byte> line)=>
+        line.IndexOf("\"FinalText\""u8)>=0||line.IndexOf("\"RewriteState\""u8)>=0||line.IndexOf("\"RewriteNotice\""u8)>=0;
+    private static bool IsLegacyProperty(string key)=>key is "FinalText" or "RewriteState" or "RewriteNotice";
+
     public void Recover()
     {
         if(!Directory.Exists(root))return;
-        foreach(var id in Ids())
+        if(File.GetAttributes(root).HasFlag(FileAttributes.ReparsePoint))throw new IOException("Pasta de histórico redirecionada.");
+        var incomplete=false;
+        lock(writeSync)
+        foreach(var (id,file) in Files())
         {
-            var file=PathFor(id);
-            ReadEntries(id,out var valid);var torn=new FileInfo(file).Length!=valid;
-            if(torn){using var stream=new FileStream(file,FileMode.Open,FileAccess.Write,FileShare.Read);stream.SetLength(valid);stream.Flush(true);}
-            var snapshot=Read(id);
-            if(snapshot.State is RecordingState.Recording or RecordingState.Stopping||snapshot.Segments.Any(s=>s.Pending))
-            {
-                foreach(var s in snapshot.Segments.Where(s=>s.Pending))Append(id,new("gap",DateTimeOffset.UtcNow,s.Sequence,s.From,s.To,Note:"áudio temporário perdido ao encerrar; sem repetição automática"));
-                var drafts=snapshot.Segments.Where(s=>s.Provisional&&!s.Superseded).Select(s=>new RecordingRevision(s.Sequence,s.Text,false,true,s.ContentStart)).ToArray();if(drafts.Length>0)Append(id,new("revise",DateTimeOffset.UtcNow,Revisions:drafts));
-                Append(id,new("interrupted",DateTimeOffset.UtcNow,Note:"Sessão encerrada antes da conclusão. Texto já transcrito preservado; o trecho final ainda não transcrito pode estar ausente.",FinalText:snapshot.FinalText,RewriteState:RecordingRewriteState.Cancelled,RewriteNotice:"Revisão não concluída antes do encerramento. O original foi preservado."));
-            }
-            else if(torn||snapshot.RewriteState==RecordingRewriteState.Processing)
-                Append(id,RewriteEntry(snapshot with{RewriteState=RecordingRewriteState.Cancelled,RewriteNotice="Revisão interrompida ao encerrar. O original foi preservado; nenhuma repetição automática foi feita."}));
+            try{RecoverFile(id,file);}
+            catch(Exception ex) when(ex is IOException or UnauthorizedAccessException){incomplete=true;}
+        }
+        if(incomplete)throw new IOException("Não foi possível atualizar todo o histórico local.");
+    }
+    private static void RecoverFile(string id,string file)
+    {
+        if(File.GetAttributes(file).HasFlag(FileAttributes.ReparsePoint))throw new IOException("Arquivo de histórico redirecionado.");
+        var snapshot=ToSnapshot(id,ReadEntries(file,recover:true));
+        if(snapshot.State is RecordingState.Recording or RecordingState.Stopping||snapshot.Segments.Any(s=>s.Pending))
+        {
+            foreach(var s in snapshot.Segments.Where(s=>s.Pending))AppendFile(file,new("gap",DateTimeOffset.UtcNow,s.Sequence,s.From,s.To,Note:"áudio temporário perdido ao encerrar; sem repetição automática"));
+            var drafts=snapshot.Segments.Where(s=>s.Provisional&&!s.Superseded).Select(s=>new RecordingRevision(s.Sequence,s.Text,false,true,s.ContentStart)).ToArray();if(drafts.Length>0)AppendFile(file,new("revise",DateTimeOffset.UtcNow,Revisions:drafts));
+            AppendFile(file,new("interrupted",DateTimeOffset.UtcNow,Note:"Sessão encerrada antes da conclusão. Texto já transcrito preservado; o trecho final ainda não transcrito pode estar ausente."));
         }
     }
 }
@@ -136,8 +202,7 @@ public sealed class RecordingSession : IDisposable
     private bool firstFullWindow;
     private bool accepting=true,busy,disposed,hasGaps;
     private bool storageFailed,remoteFailed;
-    private string notice="",finalText="",rewriteNotice="";
-    private RecordingRewriteState rewriteState;
+    private string notice="";
     private Task? stopTask;
     private RecordingState state=RecordingState.Recording;
     private TaskCompletionSource<bool> drained=Completed();
@@ -145,7 +210,7 @@ public sealed class RecordingSession : IDisposable
     public string Id {get;}
     public event Action? Changed;
     public event Action? StopRequested;
-    public RecordingSnapshot Snapshot {get{lock(sync)return new(Id,started,model,state,segments.ToArray(),notice,profile,finalText,rewriteState,rewriteNotice);}}
+    public RecordingSnapshot Snapshot {get{lock(sync)return new(Id,started,model,state,segments.ToArray(),notice,profile);}}
     public bool Accepting {get{lock(sync)return accepting&&!disposed;}}
     public Task WhenIdle {get{lock(sync)return stopTask is null?drained.Task:Task.WhenAll(drained.Task,stopTask);}}
     public RecordingSession(RecordingJournal journal,IStudyApi api,string model,RecordingProfile? profile=null){this.journal=journal;this.api=api;this.model=model;this.profile=profile??new();this.profile.Validate();Id=journal.Create(model,this.profile);}
@@ -209,7 +274,7 @@ public sealed class RecordingSession : IDisposable
                 else
                 {
                     Revise(new(previous.Sequence,previous.Text,false,true,previous.ContentStart),new(current.Sequence,current.Text,true,true));
-                    if(!storageFailed)notice="Há bordas sem alinhamento seguro. Os trechos originais foram preservados para revisão; nenhuma fala foi descartada por confiança.";
+                    if(!storageFailed)notice="Alguns trechos podem repetir palavras porque não foi possível alinhar o áudio com segurança.";
                 }
             }
         }
@@ -265,11 +330,6 @@ public sealed class RecordingSession : IDisposable
             Enqueue();ClearBuffer();section++;sectionStart=samples;firstFullWindow=false;Gap(++sequence,(double)samples/Vad.Rate,(double)samples/Vad.Rate,"entrada de áudio interrompida; duração da lacuna desconhecida");Changed?.Invoke();
         }
     }
-    public void CancelRewrite()
-    {
-        // This state is entered only after the STT queue has drained and capture has been sealed.
-        lock(sync)if(!disposed&&rewriteState==RecordingRewriteState.Processing)lifetime.Cancel();
-    }
     public Task StopAsync()
     {
         lock(sync)
@@ -297,24 +357,6 @@ public sealed class RecordingSession : IDisposable
             if(!Persist(new(hasGaps?"interrupted":"completed",DateTimeOffset.UtcNow,Note:notice)))state=RecordingState.Interrupted;
             Changed?.Invoke();
         }
-        RecordingSnapshot Publish(RecordingSnapshot value)
-        {
-            lock(sync)
-            {
-                if(disposed)return Snapshot;
-                if(lifetime.IsCancellationRequested&&value.RewriteState!=RecordingRewriteState.Cancelled)return Snapshot;
-                finalText=value.FinalText;rewriteState=value.RewriteState;rewriteNotice=value.RewriteNotice;
-                if(!storageFailed)
-                {
-                    try{journal.Append(Id,RecordingJournal.RewriteEntry(Snapshot));}
-                    catch(Exception ex) when(ex is IOException or UnauthorizedAccessException)
-                    {storageFailed=true;rewriteNotice+=" Não foi possível salvar a revisão. O texto continua disponível para copiar enquanto o app estiver aberto.";}
-                }
-                Changed?.Invoke();return Snapshot;
-            }
-        }
-        if(api is IRecordingRewriter rewriter)await RecordingRewrite.RunAsync(Snapshot,rewriter,lifetime.Token,Publish).ConfigureAwait(false);
-        else Publish(Snapshot with{RewriteState=RecordingRewriteState.Failed,RewriteNotice="Revisão indisponível nesta sessão. O original foi preservado."});
     }
     public void Dispose()
     {
@@ -322,19 +364,13 @@ public sealed class RecordingSession : IDisposable
         {
             if(disposed)return;disposed=true;accepting=false;lifetime.Cancel();ClearBuffer();
             while(queue.TryDequeue(out var work))Array.Clear(work.Wav);
-            if(rewriteState==RecordingRewriteState.Processing||rewriteState==RecordingRewriteState.NotStarted&&state is RecordingState.Completed or RecordingState.Interrupted&&stopTask is {IsCompleted:false})
-            {
-                rewriteState=RecordingRewriteState.Cancelled;rewriteNotice="Revisão interrompida ao encerrar. O original foi preservado.";
-                try{journal.Append(Id,RecordingJournal.RewriteEntry(Snapshot));}catch(IOException){}catch(UnauthorizedAccessException){}
-            }
             if(state is RecordingState.Recording or RecordingState.Stopping)
             {
-                state=RecordingState.Interrupted;rewriteState=RecordingRewriteState.Cancelled;
+                state=RecordingState.Interrupted;
                 notice="App encerrado antes de concluir. Texto transcrito preservado; áudio temporário pendente descartado.";
-                rewriteNotice="Revisão interrompida. O original foi preservado.";
                 for(var index=0;index<segments.Count;index++)if(segments[index].Pending)
                     segments[index]=segments[index] with{Pending=false,Note="áudio temporário descartado ao encerrar; trecho não transcrito"};
-                try{journal.Append(Id,RecordingJournal.RewriteEntry(Snapshot));}catch(IOException){}catch(UnauthorizedAccessException){}
+                try{journal.Append(Id,new("interrupted",DateTimeOffset.UtcNow,Note:notice));}catch(IOException){}catch(UnauthorizedAccessException){}
             }
         }
     }

@@ -2,7 +2,15 @@
 
 `StudyWhisper.Core` não depende de UI ou dispositivos: VAD, WAV, pipeline, orçamento, relógio do popover e adaptadores de API. `StudyWhisper.App` é WPF com `NotifyIcon` de WinForms; o host é WPF. `Microphone` usa WinMM em modo de evento, evitando chamadas de áudio dentro de callbacks nativos. Testes usam um `HttpMessageHandler` que nunca abre conexão e um `IStudyApi` fictício.
 
-## Fluxo
+## Modos de captura na versão 0.1.23
+
+O controlador mantém uma única entrada de áudio. O seletor de modo e a ação Iniciar/Parar compartilham o mesmo estado no indicador e no painel. A captura bloqueia a seleção de modo. Parar fecha a fonte imediatamente. Em Transcrição, a fila conclui os trechos de áudio já recebidos e o journal registra o estado final. Retomar a escuta exige outra ação do usuário.
+
+Perguntas usa o pipeline abaixo. Transcrição usa apenas STT e mantém o alinhamento local de janelas sobrepostas. O painel apresenta os trechos na ordem de captura e indica lacunas. Abrir o painel pelo círculo mostra o conteúdo do modo selecionado. As respostas aparecem no painel enquanto ele está aberto. Com o painel fechado ou minimizado, chegam ao balão passivo. Abrir o seletor de modo dispensa o balão.
+
+A abertura de um histórico antigo remove os campos de reescrita dos registros por substituição atômica de cada arquivo e descarta os arquivos de progresso dessa função. Os segmentos originais, seus timestamps e a consolidação das sobreposições continuam no histórico.
+
+## Fluxo do modo Perguntas
 
 ```mermaid
 flowchart LR
@@ -83,3 +91,11 @@ Depois de drenar STT e selar a captura, `RecordingSession.StopAsync` chama `IRec
 `OpenRouter.RewriteRecordingAsync` divide o texto completo em partes de até 6.000 bytes UTF-8, preserva limites de caracteres e fornece contexto adjacente. Cada parte tem prazo de 180 segundos e limite de 12.000 tokens de saída. O resultado só é publicado quando todas terminam e passam pelas verificações de números, negações e marcadores. Isso detecta falhas específicas; não comprova fidelidade semântica. O Rewrite manual canônico mantém seu contrato próprio.
 
 O controlador pausa a escuta durante a revisão explícita de uma gravação salva, aguarda as operações anteriores e restaura o estado de escuta ao concluir. Os painéis de original e final crescem com a janela e preservam seleção, rolagem e a proporção escolhida no divisor. Detalhes em [gravação 0.1.16](RECORDING-0.1.16.md).
+
+## Painel unificado, 0.1.18
+
+No aplicativo, OrbToolsPanel incorpora os tres botoes inferiores na mesma OrbWindow. A janela completa mede 104 x 104 DIP, preserva NOACTIVATE e usa essa dimensao na ancoragem. O indicador isolado mantem 72 x 72 DIP. A janela separada de acoes foi removida; veja [menu unificado](MENU-0.1.18.md).
+
+## Navegacao unificada, 0.1.19
+
+DashboardWindow incorpora as superficies existentes em uma janela navegavel, sem interromper captura ou revisao ao trocar de secao. O evento local Pipeline.Transcribed alimenta um historico de ate 30 transcricoes em RAM, separado do fluxo de diagnostico sem texto. Reescritas avulsas tambem ficam em RAM; o journal de gravacoes permanece inalterado. Veja [painel navegavel](PANEL-0.1.19.md).

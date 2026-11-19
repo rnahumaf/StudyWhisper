@@ -26,7 +26,7 @@ public static class Program
         {
             controller=new Controller(demo,smoke);
             if(smoke) {await UiSmoke.RunAsync(controller,args);app.Shutdown();return;}
-            activationWait=ThreadPool.RegisterWaitForSingleObject(activation!,(_,_)=>app.Dispatcher.BeginInvoke(()=>controller?.ShowSettings()),null,Timeout.Infinite,false);
+            activationWait=ThreadPool.RegisterWaitForSingleObject(activation!,(_,_)=>app.Dispatcher.BeginInvoke(()=>controller?.ShowPanel()),null,Timeout.Infinite,false);
             controller.Orb.Show();
             if(!demo){controller.CheckDependencies();controller.ResumeAfterUpdate();}
             if(demo)

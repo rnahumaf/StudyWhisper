@@ -5,11 +5,43 @@ using System.Windows.Input;
 using System.Windows.Threading;
 namespace StudyWhisper.App;
 
-public enum LensScene { Paused, Listening, Filtering, FilterApproved, FilterRejected, Transcribing, TranscriptReady, EmptyTranscript, Classifying, JevIgnored, JevWaiting, JevApproved, Generating, ResponseReady, Throttled, Error }
+public enum LensScene { Paused, Listening, Filtering, FilterApproved, FilterRejected, Transcribing, TranscriptReady, EmptyTranscript, Classifying, JevIgnored, JevWaiting, JevApproved, Generating, ResponseReady, Throttled, Error, Recording, RecordingTransition }
 
-/// <summary>One fixed 72 DIP circle. Real stages replace its internal scene; never expand the window.</summary>
+/// <summary>Fixed indicator with optional actions in one passive, rounded panel.</summary>
 public sealed class OrbWindow : PassiveWindow
 {
+    public const double PanelSize=116;
+    internal bool HasTools {get;private set;}
+    internal double OverlaySize=>HasTools?PanelSize:72;
+    internal Rect AvailablePanelSpace(double minimumWidth,double minimumHeight)
+    {
+        var work=SystemParameters.WorkArea;
+        var bounds=new Rect(double.IsFinite(Left)?Left:work.Right-OverlaySize,double.IsFinite(Top)?Top:work.Top,OverlaySize,OverlaySize);
+        if(PresentationSource.FromVisual(this)?.CompositionTarget is { } target)
+        {
+            var screen=System.Windows.Forms.Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).Handle).WorkingArea;
+            var logical=target.TransformFromDevice;
+            work=new Rect(logical.Transform(new Point(screen.Left,screen.Top)),logical.Transform(new Point(screen.Right,screen.Bottom)));
+            bounds=new Rect(logical.Transform(PointToScreen(new Point())),logical.Transform(PointToScreen(new Point(ActualWidth,ActualHeight))));
+        }
+        work.Inflate(-8,-8);
+        var below=Math.Clamp(bounds.Bottom+8,work.Top,work.Bottom);
+        var leftSpace=Math.Max(0,bounds.Left-8-work.Left);
+        if(work.Bottom-below<minimumHeight&&leftSpace>=minimumWidth)
+            return new Rect(work.Left,work.Top,leftSpace,work.Height);
+        var right=Math.Clamp(bounds.Right,work.Left,work.Right);
+        return new Rect(work.Left,below,Math.Max(1,right-work.Left),Math.Max(1,work.Bottom-below));
+    }
+    internal void AttachTools(CaptureControls tools)
+    {
+        HasTools=true;Width=Height=PanelSize;
+        Content=null;
+        var layout=new StackPanel{VerticalAlignment=VerticalAlignment.Center};
+        drawing.Width=drawing.Height=72;drawing.HorizontalAlignment=HorizontalAlignment.Center;
+        layout.Children.Add(drawing);layout.Children.Add(tools);
+        var surface=new Border{Background=Brushes.White,BorderBrush=Ui.Line,BorderThickness=new Thickness(1),Padding=new Thickness(2),CornerRadius=new CornerRadius(16),Child=layout,ContextMenu=drawing.ContextMenu};
+        drawing.ContextMenu=null;Content=surface;anchor.Request();
+    }
     public FlowState Flow {get;}=new();
     public AudioBands Bands {get;private set;}
     public bool EffectiveReduceMotion=>reduceMotion||!SystemParameters.ClientAreaAnimation;
@@ -25,6 +57,7 @@ public sealed class OrbWindow : PassiveWindow
     {
         get
         {
+            if(recordingLabel.Length>0)return recordingLive?LensScene.Recording:LensScene.RecordingTransition;
             if(status.Phase==Phase.Recovering)return LensScene.Throttled;
             if(status.Phase==Phase.Throttled)return CaptureStreaming?LensScene.Listening:LensScene.Throttled;
             if(status.Phase==Phase.Blocked)return LensScene.Error;
@@ -55,36 +88,27 @@ public sealed class OrbWindow : PassiveWindow
     private long transitionAt;
     private Status status=new(Phase.Paused,"Monitoramento pausado");
     private string recordingLabel="";
+    private bool recordingLive;
     public string RecordingLabel=>recordingLabel;
-    public void SetMonitoringState(bool enabled,bool available)
-    {
-        AutomationProperties.SetName(drawing,"StudyWhisper: abrir últimas interações");
-    }
-    public void SetRecordingState(string label){recordingLabel=label;UpdateHelp();drawing.InvalidateVisual();}
+    public void SetRecordingState(string label,bool live=false){recordingLabel=label;recordingLive=live;UpdateHelp();drawing.InvalidateVisual();}
+    public Status CurrentStatus=>status;
     internal double Motion=>EffectiveReduceMotion?0:Environment.TickCount64/1000.0;
     internal double SceneOpacity=>EffectiveReduceMotion||!Flow.Enabled?1:.4+.6*Math.Clamp(Stopwatch.GetElapsedTime(transitionAt).TotalMilliseconds/150,0,1);
     private bool Transitioning=>Stopwatch.GetElapsedTime(transitionAt).TotalMilliseconds<150;
-    public OrbWindow(Action history,Action settings,Action toggle,Action clear,Action exit,Action? record=null,Action? recordings=null,Func<string>? recordLabel=null,Action? rewrite=null)
+    public OrbWindow(Action history,Action clear,Action exit)
     {
         Title="StudyWhisper · Monitoramento";Width=Height=72;AllowsTransparency=true;Background=Brushes.Transparent;
         drawing=new FlowDrawing(this){Cursor=Cursors.Hand};Content=drawing;
-        AutomationProperties.SetName(drawing,"StudyWhisper: abrir últimas interações");
-        anchor=new MonitorAnchor(this);
+        AutomationProperties.SetName(drawing,"StudyWhisper: abrir painel");
+        anchor=new MonitorAnchor(this,size:()=>OverlaySize);
         drawing.MouseLeftButtonDown+=(_,e)=>{click.Begin(e.GetPosition(drawing));drawing.CaptureMouse();e.Handled=true;};
         drawing.MouseMove+=(_,e)=>click.Move(e.GetPosition(drawing));
         drawing.LostMouseCapture+=(_,_)=>click.Cancel();
         drawing.MouseLeftButtonUp+=(_,e)=>{var p=e.GetPosition(drawing);var invoke=click.End(p,p.X>=0&&p.Y>=0&&p.X<=drawing.ActualWidth&&p.Y<=drawing.ActualHeight);drawing.ReleaseMouseCapture();e.Handled=true;if(invoke)history();};
         var menu=new ContextMenu{StaysOpen=false};
-        if(rewrite is not null){var item=new MenuItem{Header="Rewrite"};item.Click+=(_,_)=>rewrite();menu.Items.Add(item);}
-        if(record is not null)
-        {
-            var recordingItem=new MenuItem{Header="Gravar"};recordingItem.Click+=(_,_)=>record();menu.Items.Add(recordingItem);
-            menu.Opened+=(_,_)=>{var label=recordLabel?.Invoke()??"Gravar";recordingItem.Header=label;recordingItem.IsEnabled=label is "Gravar" or "Parar";};
-            var historyItem=new MenuItem{Header="Gravações"};historyItem.Click+=(_,_)=>recordings?.Invoke();menu.Items.Add(historyItem);menu.Items.Add(new Separator());
-        }
         menu.Opened+=(_,_)=>{menuDismissal?.Dispose();menuDismissal=new(()=>new[]{(PresentationSource.FromVisual(menu) as System.Windows.Interop.HwndSource)?.Handle??IntPtr.Zero},()=>menu.IsOpen=false);};
         menu.Closed+=(_,_)=>{menuDismissal?.Dispose();menuDismissal=null;};
-        foreach(var (label,action) in new[]{("Histórico da sessão",history),("Configurações",settings),("Ativar / desativar monitoramento",toggle),("Limpar memória e histórico",clear),("Sair",exit)})
+        foreach(var (label,action) in new[]{("Abrir painel",history),("Limpar memória",clear),("Sair",exit)})
         {var item=new MenuItem{Header=label};item.Click+=(_,_)=>action();menu.Items.Add(item);}drawing.ContextMenu=menu;
         pulse.Tick+=(_,_)=>{if(DateTimeOffset.UtcNow-bandAt>TimeSpan.FromMilliseconds(350))Bands=AudioBands.Silent;drawing.InvalidateVisual();RefreshTimer();};
         settle.Tick+=(_,_)=>{settle.Stop();if(!Flow.RemoteBusy&&Flow.Filter!=StepMark.Active){var before=Scene;Flow.Collapse();ChangedScene(before);drawing.InvalidateVisual();RefreshTimer();}};
@@ -121,9 +145,10 @@ public sealed class OrbWindow : PassiveWindow
     private void UpdateHelp()
     {
         var message=(status.Phase is Phase.Error or Phase.Throttled or Phase.Recovering or Phase.Blocked?status.Message:Flow.Reason)+(Flow.Queued>0?$" · Fila {Flow.Queued}/2":"")+(Flow.Incoming.Length>0?" · "+Flow.Incoming:"");
-        if(RemoteLimited&&CaptureStreaming)message="Ouvindo normalmente. O provedor limitou temporariamente os envios. "+message;
+        if(recordingLabel.Length>0)message=recordingLabel;
+        else if(RemoteLimited&&CaptureStreaming)message="Ouvindo normalmente. O provedor limitou temporariamente os envios. "+message;
         if(CaptureSummary.Length>0)message+="\n"+CaptureSummary;
-        drawing.ToolTip=(recordingLabel.Length>0?recordingLabel+"\n":"")+message+"\nGraves (ciano): 80-350 Hz · médios (violeta): 350-2000 Hz · agudos (âmbar): 2-8 kHz.\nCores representam energia sonora, não intenção. Glifos STT são decorativos.\nClique esquerdo: abrir últimas interações. Botão direito: menu de ações.";
+        drawing.ToolTip=message+"\nClique para abrir o painel. Clique com o botão direito para ver as ações.";
         AutomationProperties.SetHelpText(drawing,message);AutomationProperties.SetHelpText(this,message);
     }
     protected override void OnClosed(EventArgs e){anchor.Dispose();menuDismissal?.Dispose();pulse.Stop();settle.Stop();SystemParameters.StaticPropertyChanged-=SystemChanged;base.OnClosed(e);}
@@ -142,15 +167,15 @@ internal sealed class FlowDrawing : FrameworkElement
     public long RenderCount {get;private set;}
     public FlowDrawing(OrbWindow owner){this.owner=owner;UseLayoutRounding=true;SnapsToDevicePixels=true;}
     private FormattedText Text(string text,double size,Brush color,bool icon=false)
-    {var key=(text,size,color,icon);if(!texts.TryGetValue(key,out var t)){t=new(text,CultureInfo.GetCultureInfo("pt-BR"),FlowDirection.LeftToRight,new Typeface(icon?"Segoe MDL2 Assets":"Segoe UI"),size,color,VisualTreeHelper.GetDpi(this).PixelsPerDip);texts[key]=t;}return t;}
+    {if(!icon)size=11;var key=(text,size,color,icon);if(!texts.TryGetValue(key,out var t)){t=new(text,CultureInfo.GetCultureInfo("pt-BR"),FlowDirection.LeftToRight,new Typeface(icon?"Segoe MDL2 Assets":"Segoe UI"),size,color,VisualTreeHelper.GetDpi(this).PixelsPerDip);texts[key]=t;}return t;}
     protected override void OnDpiChanged(DpiScale oldDpi,DpiScale newDpi){texts.Clear();base.OnDpiChanged(oldDpi,newDpi);}
     private void Center(DrawingContext d,string text,double x,double y,double size,Brush color,bool icon=false){var t=Text(text,size,color,icon);d.DrawText(t,new(x-t.Width/2,y-t.Height/2));}
     protected override void OnRender(DrawingContext d)
     {
         RenderCount++;base.OnRender(d);d.PushClip(OuterClip);
-        d.DrawEllipse(Glass,new Pen(Ui.Line,1),new(36,36),31,31);
+        if(!owner.HasTools)d.DrawEllipse(Glass,new Pen(Ui.Line,1),new(36,36),31,31);
         d.DrawEllipse(null,new Pen(Ui.Line,.65),new(36,36),24,24);
-        if(owner.RecordingLabel.Length>0){d.DrawEllipse(Red,null,new(56,18),4,4);}
+        if(owner.Scene==LensScene.Recording){d.DrawEllipse(Red,null,new(56,18),4,4);}
         var bands=owner.Bands;var values=new[]{bands.Low,bands.Mid,bands.High};var colors=new[]{Cyan,Violet,Amber};
         for(var band=0;band<3;band++)for(var bar=0;bar<8;bar++)
         {
@@ -169,7 +194,8 @@ internal sealed class FlowDrawing : FrameworkElement
         {
             var (glyph,tag,color)=scene switch
             {
-                LensScene.Throttled=>("\uE823","",Amber),LensScene.Paused=>("\uE768","",Ui.Ink),LensScene.Listening=>("\uE769",owner.RemoteLimited?"Provedor":"",Ui.Ink),
+                LensScene.Recording=>("\uE720","Ao vivo",Red),LensScene.RecordingTransition=>("\uE823","",Amber),
+                LensScene.Throttled=>("\uE823","",Amber),LensScene.Paused=>("\uE769","Parado",Ui.Muted),LensScene.Listening=>("\uE720",owner.RemoteLimited?"Provedor":"Escuta",Ui.Ink),
                 LensScene.FilterApproved=>("\uE73E","Filtro",Green),LensScene.FilterRejected=>("\uE711","Filtro",Red),
                 LensScene.TranscriptReady=>("\uE73E","STT",Green),LensScene.EmptyTranscript=>("\uE711","STT",Red),
                 LensScene.ResponseReady=>("\uE73E","Texto",Green),_=>("\uE7BA","",Red)

@@ -1,30 +1,29 @@
 # StudyWhisper
 
-Assistente de estudo para Windows que escuta quando você ativa o monitoramento e responde somente em texto. MVP 0.1.7, código aberto sob [licença MIT](LICENSE).
+O StudyWhisper tem dois modos. **Perguntas** escuta perguntas de estudo e mostra as respostas em texto. **Transcrição** acompanha a fala e salva a transcrição no computador. A versão 0.1.23 usa o mesmo seletor e a mesma ação **Iniciar/Parar** no indicador flutuante e no painel. [Licença MIT](LICENSE).
 
-Correção local 0.1.8, ainda não publicada: novas respostas abrem desde o início, com histórico acessível por rolagem. O instalador local fica em `artifacts/StudyWhisper-0.1.8-Setup-x64.exe`. Veja [correção e testes do popover](docs/POPOVER-0.1.8.md). A versão pública descrita abaixo permanece 0.1.7.
+## Instalar e usar
 
-## Instalar
+A instalação é por usuário no Windows 10/11 x64 e inclui o runtime .NET. O instalador da versão 0.1.23 e seu SHA-256 estão no GitHub. [Baixar a versão 0.1.23](https://github.com/rnahumaf/StudyWhisper/releases/tag/v0.1.23).
 
-Baixe `StudyWhisper-0.1.7-Setup-x64.exe` na [página de Releases](https://github.com/rnahumaf/StudyWhisper/releases). O instalador é por usuário e inclui .NET; não exige SDK ou administrador. O binário não tem assinatura digital.
+O modo Perguntas usa o filtro de voz Silero e requer o [Microsoft Visual C++ v14 Redistributable x64](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170).
 
-Requisitos: Windows 10/11 x64, dispositivo de gravação, conexão com a internet e sua própria chave do OpenRouter. O filtro ONNX requer o [Microsoft Visual C++ v14 Redistributable x64](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170). Se o pré-requisito faltar, o app mostra instruções e permanece pausado. Consulte [portabilidade](docs/PORTABILITY.md).
+1. Clique no círculo para abrir o painel. Em **Configurações**, cadastre sua chave individual do OpenRouter e escolha o modelo de transcrição. Para usar **Perguntas**, escolha também os modelos de classificação e resposta.
+2. No seletor, escolha **Perguntas** ou **Transcrição** e clique em **Iniciar**. Ao iniciar pelo indicador, o app mantém o foco na janela em que você está trabalhando.
+3. Clique no círculo para ver as respostas da sessão ou acompanhar o texto da transcrição. Com o painel aberto, as respostas chegam à aba **Perguntas**. Com ele fechado ou minimizado, aparecem no balão. Abrir o seletor do indicador fecha o balão. Fechar o painel mantém a captura ativa.
+4. Clique em **Parar** para desligar o microfone. Em **Transcrição**, o app conclui os trechos que já recebeu e salva o texto. Quando a finalização termina, você pode selecionar outro modo e clicar em **Iniciar**.
 
-1. Instale e abra o app. Todo início, inclusive com Windows, começa com monitoramento **desativado**.
-2. Abra **Configurações** na bandeja ou no menu do círculo. Cole sua chave individual e clique **Validar e guardar chave**. A validação consulta a autenticação, sem gerar resposta.
-3. Escolha modelos de transcrição, JEV e resposta. **Atualizar catálogo público** verifica modalidades sem enviar sua chave. O modelo de resposta começa sem seleção.
-4. Ajuste memória, pesquisa, limites e tempo de fechamento. Clique **Salvar e pausar**, depois ative **Monitoramento** no menu.
-5. Se desejar, marque **Iniciar com Windows**. O início automático também permanece pausado.
+Na primeira abertura após uma atualização de versões com reescrita, o app descarta os textos reescritos e os rascunhos locais. As transcrições originais continuam disponíveis na aba **Transcrições**.
 
 ## Escuta e respostas
 
-O círculo de 72 × 72 DIP fica no canto superior direito, acima das janelas. Suas cenas internas mostram filtro local, transcrição, JEV e geração; o espectro usa níveis reais de áudio. As cores representam energia sonora. A opção **Reduzir movimento** também respeita a preferência do Windows.
+O painel flutuante de 116 × 116 DIP fica no canto superior direito, acima das janelas. O círculo de 72 × 72 DIP mostra o estado da captura. Suas cenas internas mostram filtro local, transcrição, JEV e geração; o espectro usa níveis reais de áudio. As cores representam energia sonora. A opção **Reduzir movimento** também respeita a preferência do Windows.
 
 Silero VAD filtra silêncio e parte dos ruídos localmente. Trechos aprovados seguem para STT pelo OpenRouter; **somente o texto transcrito** chega ao classificador JEV. Perguntas claras de estudo geram resposta; comentários e interjeições são ignorados. Fala incompleta aguarda continuação por até 12 segundos. O filtro não identifica perguntas, TV ou falantes, e a precisão dos modelos reais em português depende da rota escolhida.
 
 Por padrão, a resposta é um parágrafo curto. Pedidos explícitos podem gerar listas ou explicações mais longas. O popover cresce até aproximadamente dez linhas de resposta, depois permite rolagem. Parágrafos, negrito, itálico, listas, links e código são apresentados com controles WPF nativos. Não há navegador embutido, execução de HTML/scripts ou carregamento de imagens; links HTTP/HTTPS abrem somente por clique.
 
-A resposta aparece sem ativar a janela. Hover e interação suspendem o fechamento; rolagem e clique reiniciam o prazo ajustável. Clique no círculo para reabrir o histórico. Ícones pequenos permitem copiar texto limpo, apagar a sessão e fechar. Memória habilitada envia os **dez últimos pares completos de pergunta e resposta**, mais a pergunta atual, tanto ao JEV quanto ao modelo de resposta. Falas ignoradas e respostas que falharam não entram nessa memória. Histórico visível guarda até 30 pares em RAM. Limpar cancela tarefas e apaga histórico e texto pendente.
+A resposta aparece sem ativar a janela. Hover e interação suspendem o fechamento; rolagem e clique reiniciam o prazo ajustável. Clique no círculo para abrir o painel do modo selecionado. Ícones pequenos permitem copiar texto limpo, apagar a sessão e fechar. Memória habilitada envia os **dez últimos pares completos de pergunta e resposta**, mais a pergunta atual, tanto ao JEV quanto ao modelo de resposta. Falas ignoradas e respostas que falharam não entram nessa memória. Histórico visível guarda até 30 pares em RAM. Limpar cancela tarefas e apaga histórico e texto pendente.
 
 ## Pesquisa online e custos
 
@@ -38,7 +37,7 @@ Há uma tarefa ativa e até duas falas pendentes por 30 segundos. Excesso preser
 
 ## Privacidade
 
-No modo habitual, áudio, transcrições e respostas não são gravados em disco. No modo Gravar, somente transcrição e metadados são persistidos localmente; áudio não é salvo. Veja [gravação 0.1.13](docs/RECORDING-0.1.13.md). Áudio aprovado vai ao STT; transcrição e contexto vão ao JEV e ao modelo de resposta. Com pesquisa habilitada, a consulta formulada pelo modelo também vai ao serviço de busca. O prompt orienta consultas curtas sem identificadores pessoais; as instruções proíbem copiar histórico bruto, conversa irrelevante, identificadores pessoais e segredos para a consulta. Isso não constitui garantia de anonimização ou de cumprimento por um modelo remoto.
+Em Perguntas, falas e respostas ficam na memória da sessão. Em Transcrição, o app salva texto e metadados no computador. Nos dois modos, o áudio fica em memória durante o processamento. Áudio aprovado vai ao STT; transcrição e contexto vão ao JEV e ao modelo de resposta. Com pesquisa habilitada, a consulta formulada pelo modelo também vai ao serviço de busca. O prompt orienta consultas curtas sem identificadores pessoais; as instruções proíbem copiar histórico bruto, conversa irrelevante, identificadores pessoais e segredos para a consulta. Isso não constitui garantia de anonimização ou de cumprimento por um modelo remoto.
 
 A única chave usada é a cadastrada neste app, protegida pelo DPAPI do usuário em `%LOCALAPPDATA%\StudyWhisper\openrouter.dpapi`. Preferências ficam em `settings.json`, sem chave. O app não busca credenciais de outros programas, não tem telemetria nem logs de conversas. Strings gerenciadas e serviços remotos não permitem prometer remoção física imediata dos dados. Ao desinstalar, preferências e chave são preservadas; remova a chave pelo app antes se quiser descartá-la.
 
@@ -52,12 +51,16 @@ Instale .NET SDK 8 ou 10 e Inno Setup 6. As dependências são restauradas pelo 
 .\scripts\Test.ps1 -Ui
 .\scripts\Build.ps1
 .\scripts\Verify-Package.ps1
-.\artifacts\publish-0.1.7\StudyWhisper.exe --demo
+.\artifacts\publish-0.1.23\StudyWhisper.exe --demo
 ```
 
 Os testes usam mocks HTTP, relógio controlado e áudio sintético. O modo `--demo` não abre microfone nem faz inferência remota. `Test.ps1 -Ui` renderiza WPF real e verifica foco, rolagem, Markdown e círculo. `Build.ps1` produz EXE autossuficiente, instalador e SHA-256 em `artifacts`, fora do Git. `Verify-Package.ps1` verifica o pacote sem depender de .NET instalado globalmente.
 
 Consulte [contratos oficiais](docs/API.md), [arquitetura](docs/ARCHITECTURE.md), [conversa, pesquisa e Markdown](docs/CONVERSATION.md), [testes do patch](docs/VERIFICATION-0.1.7.md), [testes e limites](docs/VERIFICATION.md), [triagem neural](docs/AUDIO-TRIAGE.md) e [indicador circular](docs/VISUAL-MONITOR.md). A versão 0.1.7 foi validada com simulações; microfone pessoal, chave real, inferência paga, pesquisa remota e instalação por outro usuário não foram testados ao vivo.
+
+## Histórico de versões
+
+As notas abaixo descrevem o comportamento de cada versão na data da entrega.
 
 ## Atualização local 0.1.9
 
@@ -106,3 +109,21 @@ Preparação local, sem instalação nem publicação: `artifacts/StudyWhisper-0
 ## Instalação local 0.1.17
 
 Em 05/11/2026, a versão 0.1.17 foi instalada localmente com ícone próprio. Ao abrir o atalho com o aplicativo já em execução, a instância existente apresenta configurações ou gravações, conforme o estado. As notas de preparação anteriores descrevem o estado na data em que foram escritas. A validação de ativação usou demonstração offline e o atalho instalado; a interação durante uma gravação real não foi exercitada.
+
+## Menu unificado, 0.1.18
+
+O indicador e os tres botoes inferiores agora ocupam um unico painel de 104 x 104 DIP, com cantos arredondados e as mesmas acoes. Pacote local: artifacts/StudyWhisper-0.1.18-Setup-x64.exe. Veja [layout e validacao](docs/MENU-0.1.18.md).
+
+## Painel navegavel, 0.1.19
+
+Abrir painel, Limpar memoria e Sair sao as tres opcoes do menu de clique direito. O painel reune configuracoes, gravacoes, reescritas e transcricoes, com trabalhos em curso e historicos. Veja [navegacao, privacidade e validacao](docs/PANEL-0.1.19.md).
+
+## Painel compacto, 0.1.20
+
+O painel abre à direita, 8 DIP abaixo do menu do indicador, com largura inicial de 420 DIP e mínimo de 340 DIP. A navegação horizontal e as ações usam SVGs locais com dicas e nomes acessíveis. Configurações, gravações, reescritas, transcrições e histórico da sessão permanecem disponíveis. Veja [layout e validação](docs/PANEL-0.1.20.md).
+
+## Leitura compacta, 0.1.21
+
+Texto da interface em 11 DIP, títulos em 14 DIP, bordas discretas e mais espaço para ler. Transcrições exibem uma única área, com reescrita natural acessível pelo ícone de lápis; originais e marcações de processamento permanecem internos. Veja [detalhes e validação](docs/PANEL-0.1.21.md).
+
+Reescrita longa 0.1.22: processamento por partes, progresso persistido e retomada. Consulte [comportamento e validacao](docs/LONG-REWRITE-0.1.22.md).

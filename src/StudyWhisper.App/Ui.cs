@@ -11,10 +11,12 @@ public static class Ui
     public static readonly Brush Muted=new SolidColorBrush(Color.FromRgb(90,103,117));
     public static readonly Brush Accent=new SolidColorBrush(Color.FromRgb(52,105,126));
     public static readonly Brush Line=new SolidColorBrush(Color.FromRgb(218,226,231));
-    public static TextBlock Text(string text,double size=14,Brush? color=null)=>new() {Text=text,FontSize=size,Foreground=color??Ink,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,0,0,8)};
+    public static TextBlock Text(string text,double size=14,Brush? color=null)=>new() {Text=text,FontSize=size>=15?14:11,Foreground=color??Ink,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,0,0,8)};
     public static Button Button(string label,Action action)
     {
-        var b=new Button{Content=label,Padding=new Thickness(12,7,12,7),Margin=new Thickness(0,3,8,3),MinHeight=34,Background=Brushes.White,BorderBrush=Line,Foreground=Ink,FontSize=14};
+        var b=new Button{Content=label,Padding=new Thickness(12,7,12,7),Margin=new Thickness(0,3,8,3),MinHeight=34,Background=Brushes.White,BorderBrush=Line,Foreground=Ink,FontSize=11};
+        var disabled=new Trigger{Property=UIElement.IsEnabledProperty,Value=false};disabled.Setters.Add(new Setter(UIElement.OpacityProperty,.5));
+        var style=new Style(typeof(Button));style.Triggers.Add(disabled);b.Style=style;
         AutomationProperties.SetName(b,label); b.Click+=(_,_)=>action(); return b;
     }
     public static TextBlock Icon(string glyph,double size=25)=>new() {Text=glyph,FontFamily=new FontFamily("Segoe MDL2 Assets"),FontSize=size,Foreground=Ink,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};
@@ -28,7 +30,7 @@ public static class Ui
         var hover=new Trigger{Property=UIElement.IsMouseOverProperty,Value=true};hover.Setters.Add(new Setter(Control.BackgroundProperty,new SolidColorBrush(Color.FromRgb(237,243,246))));template.Triggers.Add(hover);
         b.Template=template;b.Click+=(_,_)=>action();return b;
     }
-    public static void Style(Window w) { w.FontFamily=new FontFamily("Segoe UI"); w.FontSize=14; w.Foreground=Ink; w.Background=Brushes.White; }
+    public static void Style(Window w) { w.FontFamily=new FontFamily("Segoe UI"); w.FontSize=11; w.Foreground=Ink; w.Background=Brushes.White; foreach(var type in new[]{typeof(ToolTip),typeof(ContextMenu)}){var style=new Style(type);style.Setters.Add(new Setter(Control.FontSizeProperty,11.0));w.Resources[type]=style;} }
 }
 
 public class PassiveWindow : Window
@@ -108,7 +110,7 @@ public sealed class PopoverWindow : PassiveWindow
         var offset=scroll.VerticalOffset;CancelPendingScroll();latestShown=latest;tailSpace.Height=0;
         FrameworkElement? latestEntry=null,latestAnswer=null;
         turns.Children.Clear();
-        if(history.Count==0) turns.Children.Add(Ui.Text("As respostas aparecerão aqui. O monitoramento começa desativado; use o menu da bandeja para configurar e ativar.",14,Ui.Muted));
+        if(history.Count==0) turns.Children.Add(Ui.Text("As respostas aparecerão aqui. O monitoramento começa desativado; abra o painel para configurar e ativar.",14,Ui.Muted));
         for(var index=0;index<history.Count;index++)
         {
             var turn=history[index];var entry=new StackPanel();turns.Children.Add(entry);
@@ -132,16 +134,13 @@ public sealed class PopoverWindow : PassiveWindow
             if(index<history.Count-1)turns.Children.Add(new Border{Height=1,Background=Ui.Line,Margin=new Thickness(0,7,0,7)});
         }
         turns.Children.Add(tailSpace);
-        var work=SystemParameters.WorkArea;
-        Width=Math.Max(160,Math.Min(380,work.Width-16));
+        var space=orb.AvailablePanelSpace(160,80);
+        Width=Math.Min(380,space.Width);
         // Ten answer lines (20 DIP each), plus question and small metadata. Longer/history content scrolls.
-        var top=Math.Min(orb.Top+orb.Height+8,work.Bottom-96);
-        var available=Math.Max(80,work.Bottom-top-8);
         turns.Measure(new Size(Math.Max(1,Width-28),double.PositiveInfinity));
         var body=Math.Min(BodyLimit,latestEntry?.DesiredSize.Height??turns.DesiredSize.Height);
-        Height=Math.Clamp(body+57,80,Math.Min(BodyLimit+57,available));
-        Left=Math.Clamp(orb.Left+orb.Width-Width,work.Left+8,Math.Max(work.Left+8,work.Right-Width-8));
-        Top=Math.Clamp(top,work.Top+8,Math.Max(work.Top+8,work.Bottom-Height-8));
+        Height=Math.Min(Math.Clamp(body+57,80,BodyLimit+57),space.Height);
+        Left=space.Right-Width;Top=space.Top;
         Show();scroll.UpdateLayout();
         void Position()=>PositionView(latestEntry,latestAnswer,showLatest,offset);
         Position();

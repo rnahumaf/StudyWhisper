@@ -71,21 +71,23 @@ internal static class OverlaySmoke
             check("Pause cancels pending resume recovery without reopening a loop",sources.Count==1&&active==0&&!capture.DesiredRunning);
         }
         c.Orb.Show();await Idle();
-        c.Toggle();await Idle();check("Demo monitoring enables",c.MonitoringEnabled);
+        c.ToggleCapture();await Idle();check("Demo monitoring enables",c.MonitoringEnabled);
         c.Pause();await Idle();check("Pause stops monitoring and preserves history",!c.MonitoringEnabled&&c.History.Count==0);
         for(var n=0;n<50;n++)
         {
-            click.Begin(new(36,36));if(click.End(new(36,36),true))c.ToggleMonitoringFromOrb();
-            if(click.End(new(36,36),true))c.ToggleMonitoringFromOrb();
+            click.Begin(new(36,36));if(click.End(new(36,36),true))c.ToggleCapture();
+            if(click.End(new(36,36),true))c.ToggleCapture();
             check($"Rapid gesture updates actual controller state {n}",c.MonitoringEnabled==(n%2==0));
         }
-        await c.StartRecordingAsync();var recordingAction=c.RecordAction;c.ToggleMonitoringFromOrb();
-        check("Main monitoring action leaves active recording intact",recordingAction=="Parar"&&c.RecordAction=="Parar"&&!c.MonitoringEnabled);
-        await c.StopRecordingAsync(false);
-        check("Recording stops through its existing dedicated action",c.RecordAction=="Gravar"&&!c.MonitoringEnabled);
+        c.SelectMode(StudyMode.Transcription);await c.StartRecordingAsync();var wasRecording=c.RecordingActive;
+        c.SelectMode(StudyMode.Questions);
+        check("Mode selection leaves active recording intact",wasRecording&&c.RecordingActive&&!c.MonitoringEnabled);
+        await c.StopRecordingAsync();
+        check("Recording stops through its existing dedicated action",!c.RecordingActive&&!c.MonitoringEnabled);
+        c.SelectMode(StudyMode.Questions);
         // Ensure native DPI/resize notifications restore the canonical DIP content.
         c.Orb.Width=110;c.Orb.Height=50;await Idle();await Idle();
-        check("Native resize restores 72 DIP square",Math.Abs(c.Orb.ActualWidth-72)<1&&Math.Abs(c.Orb.ActualHeight-72)<1);
+        check("Native resize restores unified panel DIP square",Math.Abs(c.Orb.ActualWidth-OrbWindow.PanelSize)<1&&Math.Abs(c.Orb.ActualHeight-OrbWindow.PanelSize)<1);
         UiSmoke.Capture(c.Orb,Path.Combine(dir,"overlay-canonical.png"));
     }
     private static async Task Idle()=>await System.Windows.Application.Current.Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);

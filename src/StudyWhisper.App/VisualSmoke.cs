@@ -10,7 +10,7 @@ public static class VisualSmoke
     public static async Task RunAsync(string dir,Action<string,bool> check)
     {
         var history=0;var settings=0;var toggles=0;
-        var orb=new OrbWindow(()=>history++,()=>settings++,()=>toggles++,()=>{},()=>{});
+        var orb=new OrbWindow(()=>history++,()=>settings++,()=>toggles++);
         var foreground=PassiveWindow.GetForegroundWindow();orb.Show();await Yield();
         long generation=1,sequence=0,item=1;
         var fixedLeft=orb.Left;var fixedTop=orb.Top;
@@ -51,7 +51,7 @@ public static class VisualSmoke
         generation++;await Send(FlowKind.Cancelled);Capture("cancelled","Cancelado");orb.Apply(new(FlowKind.AnswerStarted,generation-1,++sequence,item));check("Late results cannot revive cancelled internal animation",orb.Scene==LensScene.Paused&&!orb.AnimationRunning&&orb.Bands==AudioBands.Silent);
         check("All internal scenes preserve foreground focus and NOACTIVATE",PassiveWindow.GetForegroundWindow()==foreground&&orb.NoActivateVerified);
         var menu=((FrameworkElement)orb.Content).ContextMenu!;foreach(var index in new[]{0,1,2})((MenuItem)menu.Items[index]).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-        check("Circle menu keeps history, settings and monitoring accessible",history==1&&settings==1&&toggles==1);
+        check("Circle menu keeps panel, clear-memory and exit accessible",history==1&&settings==1&&toggles==1);
         SaveComparison(scenes,Path.Combine(dir,"lens-scenes.png"));orb.Close();
     }
     private static bool OutsideCircleTransparent(BitmapSource bitmap)

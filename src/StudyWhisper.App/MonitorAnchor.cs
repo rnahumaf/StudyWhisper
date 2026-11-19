@@ -4,7 +4,7 @@ using System.Windows.Threading;
 using Microsoft.Win32;
 namespace StudyWhisper.App;
 
-// Monitor rectangles and SetWindowPos are physical pixels; WPF content stays 72 DIP.
+// Monitor rectangles and SetWindowPos are physical pixels; content uses its canonical DIP size.
 internal sealed class MonitorAnchor : IDisposable
 {
     [StructLayout(LayoutKind.Sequential)] internal struct Rect {public int Left,Top,Right,Bottom;}
@@ -14,6 +14,7 @@ internal sealed class MonitorAnchor : IDisposable
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd,IntPtr after,int x,int y,int width,int height,uint flags);
     [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(IntPtr monitor,int type,out uint x,out uint y);
     private readonly Window window;
+    private readonly Func<double> size;
     private HwndSource? source;
     private string? device;
     private bool queued,disposed;
@@ -22,14 +23,14 @@ internal sealed class MonitorAnchor : IDisposable
     private readonly Action<System.Drawing.Rectangle>? apply;
     internal int ApplyCount {get;private set;}
     internal string? Device=>device;
-    public MonitorAnchor(Window window,Func<Display[]>? topology=null,Action<System.Drawing.Rectangle>? apply=null)
+    public MonitorAnchor(Window window,Func<Display[]>? topology=null,Action<System.Drawing.Rectangle>? apply=null,Func<double>? size=null)
     {
-        this.window=window;this.topology=topology;this.apply=apply;window.SourceInitialized+=Initialized;window.SizeChanged+=Resized;
+        this.window=window;this.size=size??(()=>72);this.topology=topology;this.apply=apply;window.SourceInitialized+=Initialized;window.SizeChanged+=Resized;
         SystemEvents.DisplaySettingsChanged+=Changed;SystemEvents.PowerModeChanged+=Power;
     }
-    internal static System.Drawing.Rectangle Bounds(System.Drawing.Rectangle work,uint dpi)
+    internal static System.Drawing.Rectangle Bounds(System.Drawing.Rectangle work,uint dpi,double dipSize=72)
     {
-        var size=Math.Min(Math.Min(work.Width,work.Height),Math.Max(1,(int)Math.Round(72*dpi/96.0)));
+        var size=Math.Min(Math.Min(work.Width,work.Height),Math.Max(1,(int)Math.Round(dipSize*dpi/96.0)));
         var gap=(int)Math.Round(20*dpi/96.0);
         return new(Math.Max(work.Left,work.Right-size-gap),Math.Min(work.Bottom-size,work.Top+gap),size,size);
     }
@@ -57,7 +58,7 @@ internal sealed class MonitorAnchor : IDisposable
         if(topology is not null)
         {
             var displays=topology();device=Select(device,displays.Select(s=>(s.Device,s.Primary)).ToArray());
-            var display=displays.First(s=>s.Device==device);ApplyCount++;apply!(Bounds(display.Work,display.Dpi));return;
+            var display=displays.First(s=>s.Device==device);ApplyCount++;apply!(Bounds(display.Work,display.Dpi,size()));return;
         }
         var screens=System.Windows.Forms.Screen.AllScreens;
         var selected=Select(device,screens.Select(s=>(s.DeviceName,s.Primary)).ToArray());
@@ -66,8 +67,8 @@ internal sealed class MonitorAnchor : IDisposable
         var monitor=MonitorFromPoint(new(screen.Bounds.Left+screen.Bounds.Width/2,screen.Bounds.Top+screen.Bounds.Height/2),2);
         var info=new Info{Size=Marshal.SizeOf<Info>(),Device=""};if(!GetMonitorInfo(monitor,ref info))return;
         if(GetDpiForMonitor(monitor,0,out var dpi,out _)!=0||dpi==0)dpi=96;
-        var bounds=Bounds(System.Drawing.Rectangle.FromLTRB(info.Work.Left,info.Work.Top,info.Work.Right,info.Work.Bottom),dpi);
-        window.Width=window.Height=72;
+        var bounds=Bounds(System.Drawing.Rectangle.FromLTRB(info.Work.Left,info.Work.Top,info.Work.Right,info.Work.Bottom),dpi,size());
+        window.Width=window.Height=size();
         SetWindowPos(source!.Handle,IntPtr.Zero,bounds.X,bounds.Y,bounds.Width,bounds.Height,0x0014);ApplyCount++;
     }
     public void Dispose(){disposed=true;window.SourceInitialized-=Initialized;window.SizeChanged-=Resized;SystemEvents.DisplaySettingsChanged-=Changed;SystemEvents.PowerModeChanged-=Power;source?.RemoveHook(Hook);}

@@ -1,4 +1,4 @@
-param([string]$Version='0.1.17')
+param([string]$Version='0.1.23')
 $ErrorActionPreference='Stop'
 if($Version -notmatch '^\d+\.\d+\.\d+$'){throw 'Invalid version'}
 $repo=Split-Path -Parent $PSScriptRoot

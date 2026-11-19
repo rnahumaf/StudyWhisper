@@ -41,13 +41,13 @@ public static class MarkdownView
             }
             else if(block is CodeBlock code)
             {
-                var value=Ui.Text(code.Lines.ToString(),12);value.FontFamily=new FontFamily("Consolas");value.LineHeight=18;value.Margin=new Thickness(0);
+                var value=Ui.Text(code.Lines.ToString(),12);value.FontFamily=new FontFamily("Consolas");value.LineHeight=16;value.Margin=new Thickness(0);
                 parent.Children.Add(new Border{Background=new SolidColorBrush(Color.FromRgb(242,245,247)),CornerRadius=new CornerRadius(4),Padding=new Thickness(7),Margin=new Thickness(0,2,0,7),Child=value});
             }
             else if(block is LeafBlock leaf)
             {
-                var value=Ui.Text("",14);value.LineHeight=20;value.Margin=new Thickness(0,0,0,6);
-                if(block is HeadingBlock){value.FontWeight=FontWeights.SemiBold;value.FontSize=15;}
+                var value=Ui.Text("",14);value.LineHeight=16;value.Margin=new Thickness(0,0,0,6);
+                if(block is HeadingBlock){value.FontWeight=FontWeights.SemiBold;value.FontSize=14;}
                 if(leaf.Inline is not null)Inlines(leaf.Inline,value.Inlines,open,depth+1);parent.Children.Add(value);
             }
             else if(block is ContainerBlock container)
@@ -62,7 +62,7 @@ public static class MarkdownView
             switch(inline)
             {
                 case LiteralInline literal:target.Add(new Run(literal.Content.ToString()));break;
-                case CodeInline code:target.Add(new Run(code.Content){FontFamily=new FontFamily("Consolas"),Background=new SolidColorBrush(Color.FromRgb(242,245,247)),FontSize=12});break;
+                case CodeInline code:target.Add(new Run(code.Content){FontFamily=new FontFamily("Consolas"),Background=new SolidColorBrush(Color.FromRgb(242,245,247)),FontSize=11});break;
                 case LineBreakInline br:if(br.IsHard)target.Add(new LineBreak());else target.Add(new Run(" "));break;
                 case EmphasisInline emphasis:
                     Span span=emphasis.DelimiterCount>=2?new Bold():new Italic();Inlines(emphasis,span.Inlines,open,depth+1);target.Add(span);break;
