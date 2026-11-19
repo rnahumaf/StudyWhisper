@@ -123,7 +123,7 @@ public sealed class Controller : IDisposable
         {
             if(disposed||!ReferenceEquals(pipeline,current)||!pipeline.Enabled||!pipeline.History.Contains(turn))return;
             dashboard?.RefreshData();
-            if(dashboard?.DisplaysContent!=true&&!controls.IsChoosingMode)
+            if(dashboard?.DisplaysContent!=true)
                 Popover.Open(Orb,pipeline.History,Settings.CloseSeconds,true);
         });
     }
@@ -214,6 +214,7 @@ public sealed class Controller : IDisposable
     {
         if(disposed||!CanSelectMode||mode==SelectedMode)return;
         SelectedMode=mode;
+        Popover.Hide();
         UpdateControls();
     }
     public void ToggleCapture()

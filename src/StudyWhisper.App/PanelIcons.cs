@@ -60,7 +60,7 @@ internal static class PanelIcons
             style.Setters.Add(new Setter(Control.TemplateProperty,template));window.Resources[type]=style;
         }
     }
-    public static void Set(Button button,string icon,string label,string? caption=null)
+    public static void Set(ContentControl button,string icon,string label,string? caption=null)
     {
         var key=(icon,caption);
         if(!Equals(button.Tag,key))

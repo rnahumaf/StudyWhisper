@@ -2,11 +2,11 @@
 
 `StudyWhisper.Core` não depende de UI ou dispositivos: VAD, WAV, pipeline, orçamento, relógio do popover e adaptadores de API. `StudyWhisper.App` é WPF com `NotifyIcon` de WinForms; o host é WPF. `Microphone` usa WinMM em modo de evento, evitando chamadas de áudio dentro de callbacks nativos. Testes usam um `HttpMessageHandler` que nunca abre conexão e um `IStudyApi` fictício.
 
-## Modos de captura na versão 0.1.23
+## Modos de captura
 
-O controlador mantém uma única entrada de áudio. O seletor de modo e a ação Iniciar/Parar compartilham o mesmo estado no indicador e no painel. A captura bloqueia a seleção de modo. Parar fecha a fonte imediatamente. Em Transcrição, a fila conclui os trechos de áudio já recebidos e o journal registra o estado final. Retomar a escuta exige outra ação do usuário.
+O controlador mantém uma única entrada de áudio. Os botões dos dois modos e a ação Iniciar/Parar compartilham o mesmo estado no indicador e no painel. A captura bloqueia a seleção de modo. Parar fecha a fonte imediatamente. Em Transcrição, a fila conclui os trechos de áudio já recebidos e o journal registra o estado final. Retomar a escuta exige outra ação do usuário.
 
-Perguntas usa o pipeline abaixo. Transcrição usa apenas STT e mantém o alinhamento local de janelas sobrepostas. O painel apresenta os trechos na ordem de captura e indica lacunas. Abrir o painel pelo círculo mostra o conteúdo do modo selecionado. As respostas aparecem no painel enquanto ele está aberto. Com o painel fechado ou minimizado, chegam ao balão passivo. Abrir o seletor de modo dispensa o balão.
+Perguntas usa o pipeline abaixo. Transcrição usa apenas STT e mantém o alinhamento local de janelas sobrepostas. O painel apresenta os trechos na ordem de captura e indica lacunas. Abrir o painel pelo círculo mostra o conteúdo do modo selecionado. As respostas aparecem no painel enquanto ele está aberto. Com o painel fechado ou minimizado, chegam ao balão passivo. Trocar de modo fecha o balão.
 
 A abertura de um histórico antigo remove os campos de reescrita dos registros por substituição atômica de cada arquivo e descarta os arquivos de progresso dessa função. Os segmentos originais, seus timestamps e a consolidação das sobreposições continuam no histórico.
 

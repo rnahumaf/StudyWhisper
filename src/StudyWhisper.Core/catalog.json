@@ -1,5 +1,9 @@
 [
   {"Id":"deepseek/deepseek-v4.1-flash-1017","Name":"DeepSeek: DeepSeek V4.1 Flash 1017","Input":["text","image"],"Output":["text"]},
+  {"Id":"elevenlabs/scribe-v2-medical","Name":"ElevenLabs: Scribe v2 Medical","Input":["audio"],"Output":["transcription"]},
+  {"Id":"elevenlabs/scribe-v2","Name":"ElevenLabs: Scribe v2","Input":["audio"],"Output":["transcription"]},
+  {"Id":"mistralai/voxtral-mini-transcribe-3-0","Name":"Mistral: Voxtral Mini Transcribe 3","Input":["audio"],"Output":["transcription"]},
+  {"Id":"mistralai/voxtral-small-transcribe-3-0","Name":"Mistral: Voxtral Small Transcribe 3","Input":["audio"],"Output":["transcription"]},
   {
     "Input": [
       "text",

@@ -2,8 +2,29 @@ namespace StudyWhisper.App;
 
 public sealed class SettingsWindow : Window
 {
+    private sealed record SttOption(string Id, string Label, string? Benchmark = null)
+    {
+        public override string ToString() => Label;
+    }
+
+    private const string VoiceArena = "Voice Arena, conjunto privado de fala espontânea em PT-BR. Taxa de erro semântica (sWER).";
+    private const string ArtificialAnalysis = "Artificial Analysis, índice geral de taxa de erro por palavra (AA-WER).";
+    private static readonly SttOption[] RecommendedStt =
+    [
+        new("elevenlabs/scribe-v2-medical", "Scribe v2 Medical · 4,9% WER clínico (EN/FR/DE)",
+            "MedDictate, avaliado pela ElevenLabs em ditado clínico em inglês, francês e alemão."),
+        new("microsoft/mai-transcribe-2", "MAI-Transcribe 2 · 5,89% sWER PT-BR", VoiceArena),
+        new("mistralai/voxtral-mini-transcribe-3-0", "Voxtral Mini Transcribe 3 · 2,2% AA-WER", ArtificialAnalysis),
+        new("mistralai/voxtral-small-transcribe-3-0", "Voxtral Small Transcribe 3 · 2,1% AA-WER", ArtificialAnalysis),
+        new("elevenlabs/scribe-v2", "Scribe v2 · 6,43% sWER PT-BR", VoiceArena),
+        new("google/gemini-3.5-transcribe", "Gemini 3.5 Transcribe · 6,18% sWER PT-BR", VoiceArena),
+        new("openai/gpt-4o-transcribe", "GPT-4o Transcribe · 2,40% WER PT-BR", "Koedesk, fala lida do FLEURS PT-BR."),
+        new("openai/whisper-large-v3-turbo", "Whisper Large V3 Turbo · 3,9% WER PT-BR", "Vozbench, fala lida do FLEURS PT-BR, com o provedor Groq."),
+    ];
+
     private readonly Controller controller;
-    private readonly ComboBox stt=new(),jev=new(),answer=new();
+    private readonly ComboBox stt = new() { SelectedValuePath = nameof(SttOption.Id) };
+    private readonly ComboBox jev=new(),answer=new();
     private readonly CheckBox memory=new(){Content="Usar os dez últimos pares de pergunta e resposta"};
     private readonly CheckBox startup=new(){Content="Iniciar com Windows (monitoramento pausado)"};
     private readonly CheckBox zdr=new(){Content="Exigir ZDR e negar coleta nos modelos (STT, JEV e resposta)"};
@@ -76,10 +97,15 @@ public sealed class SettingsWindow : Window
         {
             c.Margin=new Thickness(0,7,0,7);var label=(string)c.Content;System.Windows.Automation.AutomationProperties.SetName(c,label);if(embedded)c.Content=new TextBlock{Text=label,TextWrapping=TextWrapping.Wrap};c.HorizontalContentAlignment=HorizontalAlignment.Stretch;
         }
-        foreach(var box in new[]{stt,jev,answer})
+        double modelLabelWidth = embedded ? 260 : 480;
+        stt.ItemTemplate = ModelTemplate(nameof(SttOption.Label), modelLabelWidth, nameof(SttOption.Benchmark));
+        jev.ItemTemplate = answer.ItemTemplate = ModelTemplate(nameof(Model.Id), modelLabelWidth);
+        stt.DropDownOpened += (_, _) => _ = stt.Dispatcher.InvokeAsync(() =>
         {
-            var text=new FrameworkElementFactory(typeof(TextBlock));text.SetBinding(TextBlock.TextProperty,new System.Windows.Data.Binding("Id"));text.SetValue(TextBlock.TextWrappingProperty,TextWrapping.Wrap);text.SetValue(FrameworkElement.MaxWidthProperty,embedded?260.0:480.0);box.ItemTemplate=new DataTemplate{VisualTree=text};
-        }
+            // WPF brings the current selection to the top when the popup opens.
+            if (stt.IsDropDownOpen && stt.Template.FindName("DropDownScrollViewer", stt) is ScrollViewer dropdown)
+                dropdown.ScrollToTop();
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
     public void RefreshActions()
     {
@@ -94,9 +120,27 @@ public sealed class SettingsWindow : Window
     private static void Section(Panel p,string label) {p.Children.Add(new Border{Height=1,Background=Ui.Line,Margin=new Thickness(0,16,0,12)});p.Children.Add(Ui.Text(label,16));}
     private static void Field(Panel p,string label,Control control)
     {p.Children.Add(Ui.Text(label,13,Ui.Muted));control.MinHeight=34;control.Margin=new Thickness(0,0,0,12);control.Padding=new Thickness(8,5,8,5);System.Windows.Automation.AutomationProperties.SetName(control,label);p.Children.Add(control);}
-    private void Populate(string s,string j,string a)
+    private static DataTemplate ModelTemplate(string labelPath, double maxWidth, string? benchmarkPath = null)
     {
-        foreach(var (box,items,value) in new[]{(stt,models.Where(x=>x.IsStt),s),(jev,models.Where(x=>x.IsJev),j),(answer,models.Where(x=>x.IsChat),a)})
+        var label = new FrameworkElementFactory(typeof(TextBlock));
+        label.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(labelPath));
+        label.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
+        label.SetValue(FrameworkElement.MaxWidthProperty, maxWidth);
+        if (benchmarkPath is not null)
+            label.SetBinding(FrameworkElement.ToolTipProperty, new System.Windows.Data.Binding(benchmarkPath));
+        return new DataTemplate { VisualTree = label };
+    }
+
+    private void Populate(string sttId, string jevId, string answerId)
+    {
+        var availableStt = models.Where(model => model.IsStt).Select(model => model.Id).ToHashSet();
+        var recommended = RecommendedStt.Where(option => availableStt.Contains(option.Id));
+        var remaining = availableStt.Except(RecommendedStt.Select(option => option.Id))
+            .OrderBy(id => id).Select(id => new SttOption(id, id));
+        stt.ItemsSource = recommended.Concat(remaining).ToArray();
+        stt.SelectedValue = sttId;
+
+        foreach(var (box,items,value) in new[]{(jev,models.Where(x=>x.IsJev),jevId),(answer,models.Where(x=>x.IsChat),answerId)})
         {box.ItemsSource=items.OrderBy(x=>x.Id).ToArray();box.SelectedItem=items.FirstOrDefault(x=>x.Id==value);box.IsTextSearchEnabled=true;}
     }
     private async Task Refresh()
@@ -105,7 +149,7 @@ public sealed class SettingsWindow : Window
         try
         {
             var api=controller.ManagementApi();var all=await Task.WhenAll(api.ModelsAsync("transcription",lifetime.Token),api.ModelsAsync("decisions",lifetime.Token),api.ModelsAsync("text",lifetime.Token));
-            var s=(stt.SelectedItem as Model)?.Id??controller.Settings.SttModel;var j=(jev.SelectedItem as Model)?.Id??controller.Settings.JevModel;var a=(answer.SelectedItem as Model)?.Id??controller.Settings.AnswerModel;
+            var s=stt.SelectedValue as string??controller.Settings.SttModel;var j=(jev.SelectedItem as Model)?.Id??controller.Settings.JevModel;var a=(answer.SelectedItem as Model)?.Id??controller.Settings.AnswerModel;
             models=all.SelectMany(x=>x).DistinctBy(x=>x.Id).ToArray();Populate(s,j,a);notice.Text="Catálogo atualizado. Modelos retirados ficam sem seleção.";
         }
         catch(OperationCanceledException) {} catch(Exception ex) {notice.Text=ex is ApiException?ex.Message:"Não foi possível atualizar o catálogo. Verifique a conexão.";} finally {networking=false;RefreshActions();}
@@ -122,7 +166,7 @@ public sealed class SettingsWindow : Window
         if(!controller.CanChangeSettings){notice.Text="Pare a transcrição antes de salvar as configurações.";return;}
         try
         {
-            var s=controller.Settings with {SttModel=(stt.SelectedItem as Model)?.Id??"",JevModel=(jev.SelectedItem as Model)?.Id??"",AnswerModel=(answer.SelectedItem as Model)?.Id??"",Memory=memory.IsChecked==true,StartWithWindows=startup.IsChecked==true,RequireZdr=zdr.IsChecked==true,EnableWebSearch=search.IsChecked==true,
+            var s=controller.Settings with {SttModel=stt.SelectedValue as string??"",JevModel=(jev.SelectedItem as Model)?.Id??"",AnswerModel=(answer.SelectedItem as Model)?.Id??"",Memory=memory.IsChecked==true,StartWithWindows=startup.IsChecked==true,RequireZdr=zdr.IsChecked==true,EnableWebSearch=search.IsChecked==true,
                 ReduceMotion=reduceMotion.IsChecked==true,CloseSeconds=int.Parse(close.Text),SpeechProbability=double.Parse(vad.Text,System.Globalization.CultureInfo.CurrentCulture),MaxAudioSeconds=int.Parse(maxAudio.Text)};
             s.Validate();if(s.SttModel.Length==0)throw new ArgumentException("Selecione um modelo de transcrição.");
             controller.Save(s);notice.Text="Configurações salvas. Monitoramento pausado.";
