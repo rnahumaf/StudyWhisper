@@ -95,20 +95,20 @@ public sealed class OrbWindow : PassiveWindow
     internal double Motion=>EffectiveReduceMotion?0:Environment.TickCount64/1000.0;
     internal double SceneOpacity=>EffectiveReduceMotion||!Flow.Enabled?1:.4+.6*Math.Clamp(Stopwatch.GetElapsedTime(transitionAt).TotalMilliseconds/150,0,1);
     private bool Transitioning=>Stopwatch.GetElapsedTime(transitionAt).TotalMilliseconds<150;
-    public OrbWindow(Action history,Action clear,Action exit)
+    public OrbWindow(Action togglePanel,Action clear,Action exit,Action? openPanel=null)
     {
         Title="StudyWhisper · Monitoramento";Width=Height=72;AllowsTransparency=true;Background=Brushes.Transparent;
         drawing=new FlowDrawing(this){Cursor=Cursors.Hand};Content=drawing;
-        AutomationProperties.SetName(drawing,"StudyWhisper: abrir painel");
+        AutomationProperties.SetName(drawing,"Abrir ou fechar painel do StudyWhisper");
         anchor=new MonitorAnchor(this,size:()=>OverlaySize);
         drawing.MouseLeftButtonDown+=(_,e)=>{click.Begin(e.GetPosition(drawing));drawing.CaptureMouse();e.Handled=true;};
         drawing.MouseMove+=(_,e)=>click.Move(e.GetPosition(drawing));
         drawing.LostMouseCapture+=(_,_)=>click.Cancel();
-        drawing.MouseLeftButtonUp+=(_,e)=>{var p=e.GetPosition(drawing);var invoke=click.End(p,p.X>=0&&p.Y>=0&&p.X<=drawing.ActualWidth&&p.Y<=drawing.ActualHeight);drawing.ReleaseMouseCapture();e.Handled=true;if(invoke)history();};
+        drawing.MouseLeftButtonUp+=(_,e)=>{var p=e.GetPosition(drawing);var invoke=click.End(p,p.X>=0&&p.Y>=0&&p.X<=drawing.ActualWidth&&p.Y<=drawing.ActualHeight);drawing.ReleaseMouseCapture();e.Handled=true;if(invoke)togglePanel();};
         var menu=new ContextMenu{StaysOpen=false};
         menu.Opened+=(_,_)=>{menuDismissal?.Dispose();menuDismissal=new(()=>new[]{(PresentationSource.FromVisual(menu) as System.Windows.Interop.HwndSource)?.Handle??IntPtr.Zero},()=>menu.IsOpen=false);};
         menu.Closed+=(_,_)=>{menuDismissal?.Dispose();menuDismissal=null;};
-        foreach(var (label,action) in new[]{("Abrir painel",history),("Limpar memória",clear),("Sair",exit)})
+        foreach(var (label,action) in new[]{("Abrir painel",openPanel??togglePanel),("Limpar memória",clear),("Sair",exit)})
         {var item=new MenuItem{Header=label};item.Click+=(_,_)=>action();menu.Items.Add(item);}drawing.ContextMenu=menu;
         pulse.Tick+=(_,_)=>{if(DateTimeOffset.UtcNow-bandAt>TimeSpan.FromMilliseconds(350))Bands=AudioBands.Silent;drawing.InvalidateVisual();RefreshTimer();};
         settle.Tick+=(_,_)=>{settle.Stop();if(!Flow.RemoteBusy&&Flow.Filter!=StepMark.Active){var before=Scene;Flow.Collapse();ChangedScene(before);drawing.InvalidateVisual();RefreshTimer();}};
@@ -148,7 +148,7 @@ public sealed class OrbWindow : PassiveWindow
         if(recordingLabel.Length>0)message=recordingLabel;
         else if(RemoteLimited&&CaptureStreaming)message="Ouvindo normalmente. O provedor limitou temporariamente os envios. "+message;
         if(CaptureSummary.Length>0)message+="\n"+CaptureSummary;
-        drawing.ToolTip=message+"\nClique para abrir o painel. Clique com o botão direito para ver as ações.";
+        drawing.ToolTip=message+"\nClique para abrir ou fechar o painel. Clique com o botão direito para ver as ações.";
         AutomationProperties.SetHelpText(drawing,message);AutomationProperties.SetHelpText(this,message);
     }
     protected override void OnClosed(EventArgs e){anchor.Dispose();menuDismissal?.Dispose();pulse.Stop();settle.Stop();SystemParameters.StaticPropertyChanged-=SystemChanged;base.OnClosed(e);}

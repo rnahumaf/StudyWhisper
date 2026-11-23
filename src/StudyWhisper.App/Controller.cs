@@ -64,7 +64,7 @@ public sealed class Controller : IDisposable
         try{recordings.Recover();}catch(Exception ex) when(ex is IOException or UnauthorizedAccessException){HistoryNotice="Não foi possível atualizar todo o histórico. Confira as permissões da pasta de transcrições e reabra o app.";}
         try{Store.DiscardLegacyRewriteWork();}catch(Exception ex) when(ex is IOException or UnauthorizedAccessException){HistoryNotice=(HistoryNotice+" Não foi possível concluir a limpeza dos rascunhos antigos. Confira o acesso ao armazenamento e reabra o app.").Trim();}
         updateSession=demo||smoke?null:Store.ReadUpdateSession();if(updateSession is not null)tracker.RestoreUsedForUpdate(updateSession.UsedCalls);if(updateSession?.CounterState is not null)Counters.Restore(updateSession.CounterState);
-        Orb=new OrbWindow(ShowPanel,Clear,()=>System.Windows.Application.Current.Shutdown());Popover=new PopoverWindow(Clear);
+        Orb=new OrbWindow(TogglePanel,Clear,()=>System.Windows.Application.Current.Shutdown(),openPanel:ShowPanel);Popover=new PopoverWindow(Clear);
         Orb.Configure(Settings.ReduceMotion);
         CreatePipeline(updateSession?.History);
         controls=new CaptureControls(this,compact:true);Orb.AttachTools(controls);
@@ -210,6 +210,13 @@ public sealed class Controller : IDisposable
     private string ModePage=>SelectedMode==StudyMode.Questions?"Perguntas":"Transcrições";
     private void OpenPage(string page){Popover.Hide();dashboard??=new DashboardWindow(this);dashboard.Open(page);}
     public void ShowPanel()=>OpenPage(ModePage);
+    private void TogglePanel()
+    {
+        if (dashboard?.DisplaysContent == true)
+            dashboard.Hide();
+        else
+            ShowPanel();
+    }
     public void SelectMode(StudyMode mode)
     {
         if(disposed||!CanSelectMode||mode==SelectedMode)return;

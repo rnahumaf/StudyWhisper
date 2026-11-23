@@ -6,7 +6,7 @@
 
 O controlador mantém uma única entrada de áudio. Os botões dos dois modos e a ação Iniciar/Parar compartilham o mesmo estado no indicador e no painel. A captura bloqueia a seleção de modo. Parar fecha a fonte imediatamente. Em Transcrição, a fila conclui os trechos de áudio já recebidos e o journal registra o estado final. Retomar a escuta exige outra ação do usuário.
 
-Perguntas usa o pipeline abaixo. Transcrição usa apenas STT e mantém o alinhamento local de janelas sobrepostas. O painel apresenta os trechos na ordem de captura e indica lacunas. Abrir o painel pelo círculo mostra o conteúdo do modo selecionado. As respostas aparecem no painel enquanto ele está aberto. Com o painel fechado ou minimizado, chegam ao balão passivo. Trocar de modo fecha o balão.
+Perguntas usa o pipeline abaixo. Transcrição usa apenas STT e mantém o alinhamento local de janelas sobrepostas. O painel apresenta os trechos na ordem de captura e indica lacunas. Um clique no círculo abre o painel no modo selecionado ou o oculta se estiver aberto. As respostas aparecem no painel enquanto ele está aberto. Com o painel fechado ou minimizado, chegam ao balão passivo. Trocar de modo fecha o balão.
 
 A abertura de um histórico antigo remove os campos de reescrita dos registros por substituição atômica de cada arquivo e descarta os arquivos de progresso dessa função. Os segmentos originais, seus timestamps e a consolidação das sobreposições continuam no histórico.
 
