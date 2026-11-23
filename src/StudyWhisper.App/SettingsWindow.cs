@@ -12,10 +12,10 @@ public sealed class SettingsWindow : Window
     private static readonly SttOption[] RecommendedStt =
     [
         new("elevenlabs/scribe-v2-medical", "Scribe v2 Medical · 4,9% WER clínico (EN/FR/DE)",
-            "MedDictate, avaliado pela ElevenLabs em ditado clínico em inglês, francês e alemão."),
+            "MedDictate, avaliado pela ElevenLabs em ditado clínico em inglês, francês e alemão. Sem WER publicado para PT-BR."),
         new("microsoft/mai-transcribe-2", "MAI-Transcribe 2 · 5,89% sWER PT-BR", VoiceArena),
-        new("mistralai/voxtral-mini-transcribe-3-0", "Voxtral Mini Transcribe 3 · 2,2% AA-WER", ArtificialAnalysis),
-        new("mistralai/voxtral-small-transcribe-3-0", "Voxtral Small Transcribe 3 · 2,1% AA-WER", ArtificialAnalysis),
+        new("mistralai/voxtral-mini-transcribe-3-0", "Voxtral Mini Transcribe 3 · 2,2% AA-WER geral", ArtificialAnalysis),
+        new("mistralai/voxtral-small-transcribe-3-0", "Voxtral Small Transcribe 3 · 2,1% AA-WER geral", ArtificialAnalysis),
         new("elevenlabs/scribe-v2", "Scribe v2 · 6,43% sWER PT-BR", VoiceArena),
         new("google/gemini-3.5-transcribe", "Gemini 3.5 Transcribe · 6,18% sWER PT-BR", VoiceArena),
         new("openai/gpt-4o-transcribe", "GPT-4o Transcribe · 2,40% WER PT-BR", "Koedesk, fala lida do FLEURS PT-BR."),

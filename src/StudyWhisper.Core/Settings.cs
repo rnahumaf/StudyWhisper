@@ -2,7 +2,7 @@ namespace StudyWhisper.Core;
 
 public sealed record Settings
 {
-    public string SttModel { get; init; } = "openai/whisper-large-v3-turbo";
+    public string SttModel { get; init; } = "elevenlabs/scribe-v2-medical";
     public string JevModel { get; init; } = "typesafe/jev-1.14";
     public const string DefaultAnswerModel="deepseek/deepseek-v4.1-flash-1017";
     public string AnswerModel { get; init; } = DefaultAnswerModel;

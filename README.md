@@ -8,7 +8,7 @@ A instalação é por usuário no Windows 10/11 x64 e inclui o runtime .NET. O i
 
 O modo Perguntas usa o filtro de voz Silero e requer o [Microsoft Visual C++ v14 Redistributable x64](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170).
 
-1. Clique no círculo para abrir o painel. Em **Configurações**, cadastre sua chave individual do OpenRouter e escolha o modelo de transcrição. Para usar **Perguntas**, escolha também os modelos de classificação e resposta.
+1. Clique no círculo para abrir o painel. Em **Configurações**, cadastre sua chave individual do OpenRouter. Desde a versão 0.1.25, o modelo de transcrição padrão é o **Scribe v2 Medical**. O seletor mostra as taxas de erro publicadas para os modelos em destaque. Para usar **Perguntas**, escolha também os modelos de classificação e resposta.
 2. Escolha **Perguntas** ou **Transcrição** e clique em **Iniciar**. No indicador, os ícones de conversa e documento representam os dois modos. Ao iniciar pelo indicador, o app mantém o foco na janela em que você está trabalhando.
 3. Clique no círculo para ver as respostas da sessão ou acompanhar o texto da transcrição. Com o painel aberto, as respostas chegam à aba **Perguntas**. Com ele fechado ou minimizado, aparecem no balão. Trocar de modo fecha o balão. Fechar o painel mantém a captura ativa.
 4. Clique em **Parar** para desligar o microfone. Em **Transcrição**, o app conclui os trechos que já recebeu e salva o texto. Quando a finalização termina, você pode selecionar outro modo e clicar em **Iniciar**.
@@ -51,7 +51,7 @@ Instale .NET SDK 8 ou 10 e Inno Setup 6. As dependências são restauradas pelo 
 .\scripts\Test.ps1 -Ui
 .\scripts\Build.ps1
 .\scripts\Verify-Package.ps1
-.\artifacts\publish-0.1.24\StudyWhisper.exe --demo
+.\artifacts\publish-0.1.25\StudyWhisper.exe --demo
 ```
 
 Os testes usam mocks HTTP, relógio controlado e áudio sintético. O modo `--demo` não abre microfone nem faz inferência remota. `Test.ps1 -Ui` renderiza WPF real e verifica foco, rolagem, Markdown e círculo. `Build.ps1` produz EXE autossuficiente, instalador e SHA-256 em `artifacts`, fora do Git. `Verify-Package.ps1` verifica o pacote sem depender de .NET instalado globalmente.
